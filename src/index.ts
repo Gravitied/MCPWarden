@@ -1,5 +1,4 @@
-export const runtimeVersion = "0.1.0";
-
+export * from "./packageInfo.js";
 export * from "./adapters/toolSourceAdapter.js";
 export * from "./adapters/mcpToolsListAdapter.js";
 export * from "./config/config.js";

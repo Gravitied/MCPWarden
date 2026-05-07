@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { Command } from "commander";
 import { MockAgentRegistry } from "./adapters/mockAgents.js";
@@ -8,6 +9,7 @@ import { validateWorkflow } from "./ir/validate.js";
 import type { Workflow } from "./ir/workflow.js";
 import { demoTools } from "./manifests/demoManifests.js";
 import { buildUniversalToolRegistry } from "./manifests/universalRegistry.js";
+import { runtimeVersion } from "./packageInfo.js";
 import { checkWorkflow } from "./policy/checker.js";
 import type { Policy } from "./policy/policy.js";
 import { executeWorkflow } from "./runtime/executor.js";
@@ -73,7 +75,7 @@ function countManifestsByName(manifests: { name: string }[]): Map<string, number
 
 const program = new Command();
 
-program.name("mcpw").description("Policy-checkable workflow IR runtime for MCP agents").version("0.1.0");
+program.name("mcpw").description("Policy-checkable workflow IR runtime for MCP agents").version(runtimeVersion);
 
 program
   .command("check")

@@ -1,13 +1,29 @@
 {
   "name": "mcp-workflow-ir-runtime",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "bin": {
     "mcpw": "./dist/cli.js"
   },
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "examples",
+    "docs",
+    "README.md",
+    "package.json"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "node scripts/clean-dist.mjs",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
     "check": "pnpm build && pnpm lint",
     "lint": "eslint .",
     "test": "vitest run",
@@ -15,11 +31,14 @@
     "test:watch": "vitest",
     "test:security": "vitest run tests/security",
     "test:e2e": "vitest run tests/e2e",
+    "test:package": "vitest run tests/e2e/package-smoke.test.ts",
     "bench": "vitest bench tests/bench",
-    "cli": "tsx src/cli.ts"
+    "cli": "tsx src/cli.ts",
+    "prepack": "pnpm build"
   },
   "dependencies": {
     "@commander-js/extra-typings": "^13.0.0",
+    "@modelcontextprotocol/sdk": "^1.17.5",
     "commander": "^13.0.0",
     "zod": "^3.24.0"
   },
