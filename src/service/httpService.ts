@@ -1,5 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { CompositeToolBroker } from "../adapters/compositeToolBroker.js";
+import { McpToolBroker } from "../adapters/mcpToolBroker.js";
+import { MockToolBroker } from "../adapters/mockTools.js";
 import { loadConfigBundle } from "../config/loadConfig.js";
 import { demoTools } from "../manifests/demoManifests.js";
 import { buildUniversalToolRegistry } from "../manifests/universalRegistry.js";
@@ -66,6 +69,7 @@ export async function createService(options: ServiceOptions = {}) {
       }
 
       if (request.method === "POST" && request.url === "/workflows/run") {
+        const broker = options.broker ?? (await defaultServiceBroker());
         const deps = {
           config: bundle.config,
           overrides: bundle.overrides,
@@ -73,7 +77,7 @@ export async function createService(options: ServiceOptions = {}) {
         };
         const result = await runWorkflowPayload(
           await readJson(request),
-          options.broker ? { ...deps, broker: options.broker } : deps
+          { ...deps, broker }
         );
         return send(response, result.status, result);
       }
@@ -103,6 +107,24 @@ export async function createService(options: ServiceOptions = {}) {
       await closeServer(server);
     }
   };
+
+  async function defaultServiceBroker() {
+    const registry = await buildUniversalToolRegistry({
+      builtInTools: demoTools,
+      sources: bundle.config.sources,
+      overrides: bundle.overrides
+    });
+    const liveSourceIds = new Set(bundle.config.sources.filter((source) => source.transport !== "fixture").map((source) => source.id));
+    const liveToolToSource = new Map(
+      registry.importedTools
+        .filter((tool) => liveSourceIds.has(tool.sourceId))
+        .map((tool) => [tool.name, tool.sourceId])
+    );
+
+    if (liveToolToSource.size === 0) return new MockToolBroker();
+    const mcpBroker = new McpToolBroker({ sources: bundle.config.sources, toolToSource: liveToolToSource });
+    return new CompositeToolBroker(new Set(liveToolToSource.keys()), mcpBroker, new MockToolBroker());
+  }
 }
 
 function toConfigInput(options: ServiceOptions): { configPath?: string; overridesPath?: string } {

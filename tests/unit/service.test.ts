@@ -108,4 +108,63 @@ describe("local service", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("runs approved stdio MCP tools through the default service broker", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "mcpw-service-stdio-"));
+    try {
+      const configPath = join(cwd, "mcpw.config.json");
+      const overridesPath = join(cwd, "mcpw.overrides.json");
+
+      await writeFile(
+        configPath,
+        JSON.stringify({
+          sources: [
+            {
+              id: "stdio-real",
+              kind: "mcp",
+              transport: "stdio",
+              command: process.execPath,
+              args: [join(process.cwd(), "tests/fixtures/stdio-mcp-server.mjs")]
+            }
+          ]
+        })
+      );
+      await writeFile(
+        overridesPath,
+        JSON.stringify({
+          sources: {
+            "stdio-real": {
+              tools: {
+                "custom.echo": {
+                  outputTrust: "artifact",
+                  effectRules: [{ kind: "static", effects: ["read.tests"] }]
+                }
+              }
+            }
+          }
+        })
+      );
+
+      const service = await createService({ configPath, overridesPath, port: 0 });
+      await service.start();
+      try {
+        const response = await fetch(`${service.url}/workflows/run`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            version: "0.1",
+            workflow: "stdio_run",
+            steps: [{ id: "echo", op: "tool.call", tool: "custom.echo", args: {} }]
+          })
+        });
+        const result = await response.json();
+        expect(response.status).toBe(200);
+        expect(result.outputs.echo.content[0].text).toBe("ok");
+      } finally {
+        await service.stop();
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
