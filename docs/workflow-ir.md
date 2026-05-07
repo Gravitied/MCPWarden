@@ -44,3 +44,17 @@ pnpm cli sources inspect --config examples/mcpw.config.json --source fixture-mcp
 pnpm cli manifests export --config examples/mcpw.config.json --source fixture-mcp
 pnpm cli check examples/imported-mcp-tool.workflow.json --config examples/mcpw.config.json
 ```
+
+## Local Service
+
+`mcpw serve` exposes localhost-only HTTP endpoints for health, source diagnostics, workflow checks, workflow plans, and approved workflow runs. The service uses the same validation, registry, and policy checker as the CLI.
+
+Endpoints:
+
+- `GET /health`
+- `GET /sources`
+- `POST /workflows/check`
+- `POST /workflows/plan`
+- `POST /workflows/run`
+
+`/workflows/run` refuses denied and approval-required effects. Live MCP tool calls stay behind the `ToolBroker` boundary.

@@ -33,3 +33,7 @@ When an imported tool lacks `outputTrust` or non-empty `effectRules`, registry c
 Explicit approvals remain effect based: approval requirements are derived from the resolved effects after manifest overrides are applied, not from the raw imported tool declaration.
 
 Configured imported tools without valid overrides must not silently fall through to built-ins of the same name. If a configured source imports `tests.get_failures` but the source lacks the required override annotations, a workflow that references `tests.get_failures` is denied instead of accidentally using the built-in manifest.
+
+## Service Safety
+
+The local service fails closed. Unknown tools, unannotated imported tools, denied effects, and approval-required effects do not run. Live MCP tool calls are routed through the `ToolBroker` boundary only after workflow validation and policy checks pass.
