@@ -29,11 +29,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Gravitied/mcpwarden.git"
+    "url": "https://github.com/Gravitied/MCPWarden.git"
   },
-  "homepage": "https://github.com/Gravitied/mcpwarden#readme",
+  "homepage": "https://github.com/Gravitied/MCPWarden#readme",
   "bugs": {
-    "url": "https://github.com/Gravitied/mcpwarden/issues"
+    "url": "https://github.com/Gravitied/MCPWarden/issues"
   },
   "publishConfig": {
     "access": "public"

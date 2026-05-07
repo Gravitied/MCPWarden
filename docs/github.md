@@ -3,7 +3,7 @@
 The source repository is published to GitHub at:
 
 ```text
-https://github.com/Gravitied/mcpwarden
+https://github.com/Gravitied/MCPWarden
 ```
 
 The project display name and repository slug are both MCPWarden. Use `mcpwarden` for npm package metadata, GitHub URLs, and new remotes.
