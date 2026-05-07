@@ -65,7 +65,7 @@
     "@commander-js/extra-typings": "^13.0.0",
     "@modelcontextprotocol/sdk": "^1.17.5",
     "commander": "^13.0.0",
-    "zod": "^3.24.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
