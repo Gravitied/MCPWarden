@@ -1,11 +1,19 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 const exec = promisify(execFile);
+const cliPath = resolve("src/cli.ts");
+const require = createRequire(import.meta.url);
+const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
 
-async function runCli(args: string[]) {
-  return exec(process.execPath, ["--import", "tsx", "src/cli.ts", ...args]);
+async function runCli(args: string[], cwd = process.cwd()) {
+  return exec(process.execPath, ["--import", tsxLoader, cliPath, ...args], { cwd });
 }
 
 describe("mcpw CLI", () => {
@@ -73,5 +81,16 @@ describe("mcpw CLI", () => {
     ).rejects.toMatchObject({
       stderr: expect.stringContaining("unknown tool: tests.get_failures")
     });
+  });
+
+  it("initializes starter project files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "mcpw-cli-init-"));
+    try {
+      const { stdout } = await runCli(["init"], cwd);
+      expect(stdout).toContain("created mcpw.config.json");
+      expect(await readFile(join(cwd, "mcpw.config.json"), "utf8")).toContain("\"sources\"");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 });

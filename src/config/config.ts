@@ -16,7 +16,13 @@ export const mcpSourceConfigSchema = z.object({
   defaultPolicy: z.enum(["deny-unknown", "inspect-only", "allow-annotated"]).default("deny-unknown")
 });
 
+export const serviceConfigSchema = z.object({
+  host: z.string().default("127.0.0.1"),
+  port: z.number().int().min(0).max(65535).default(8765)
+});
+
 export const mcpwConfigSchema = z.object({
+  service: serviceConfigSchema.default({}),
   sources: z.array(mcpSourceConfigSchema).default([])
 });
 
@@ -52,6 +58,7 @@ export const manifestOverridesSchema = z.object({
 
 export type McpwConfig = z.infer<typeof mcpwConfigSchema>;
 export type McpSourceConfig = z.infer<typeof mcpSourceConfigSchema>;
+export type ServiceConfig = z.infer<typeof serviceConfigSchema>;
 export type ManifestOverride = z.infer<typeof manifestOverrideSchema>;
 export type ManifestOverrides = z.infer<typeof manifestOverridesSchema>;
 

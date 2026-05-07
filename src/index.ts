@@ -3,6 +3,8 @@ export * from "./adapters/toolSourceAdapter.js";
 export * from "./adapters/mcpToolsListAdapter.js";
 export * from "./config/config.js";
 export * from "./config/loadConfig.js";
+export * from "./config/paths.js";
+export * from "./cli/init.js";
 export * from "./manifests/overrides.js";
 export * from "./manifests/universalRegistry.js";
 export * from "./manifests/registry.js";

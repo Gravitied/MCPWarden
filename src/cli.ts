@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { MockAgentRegistry } from "./adapters/mockAgents.js";
 import { MockToolBroker } from "./adapters/mockTools.js";
 import { InMemoryArtifactStore } from "./artifacts/artifactStore.js";
+import { initializeProject } from "./cli/init.js";
 import { parseManifestOverrides, parseMcpwConfig } from "./config/config.js";
 import { validateWorkflow } from "./ir/validate.js";
 import type { Workflow } from "./ir/workflow.js";
@@ -76,6 +77,15 @@ function countManifestsByName(manifests: { name: string }[]): Map<string, number
 const program = new Command();
 
 program.name("mcpw").description("Policy-checkable workflow IR runtime for MCP agents").version(runtimeVersion);
+
+program
+  .command("init")
+  .description("Create starter mcpw config and workflow files")
+  .action(async () => {
+    const result = await initializeProject();
+    for (const item of result.created) console.log(`created ${item.name}`);
+    for (const item of result.skipped) console.log(`exists  ${item.name}`);
+  });
 
 program
   .command("check")
