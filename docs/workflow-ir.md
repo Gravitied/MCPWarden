@@ -1,6 +1,6 @@
 # Workflow IR
 
-The runtime executes strict JSON workflows. The IR is the stable interface. A textual DSL may be added later, but it must compile to this IR.
+MCPWarden executes strict JSON workflows. The IR is the stable interface. A textual DSL may be added later, but it must compile to this IR.
 
 ## Operations
 

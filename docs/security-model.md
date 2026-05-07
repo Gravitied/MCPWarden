@@ -1,4 +1,4 @@
-# Security Model
+# MCPWarden Security Model
 
 ## Core Invariant
 

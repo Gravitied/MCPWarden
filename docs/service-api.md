@@ -1,0 +1,131 @@
+# MCPWarden Service API
+
+`mcpw serve` starts a localhost HTTP service around the same validation, registry, policy, and execution pipeline used by the CLI.
+
+## Start The Service
+
+```powershell
+mcpw serve --config mcpw.config.json
+```
+
+Options:
+
+- `--config <path>`
+- `--overrides <path>`
+- `--host <host>`
+- `--port <port>`
+
+Default service settings:
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 8765
+}
+```
+
+## GET /health
+
+Returns service status.
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "version": "0.1.0",
+  "uptimeMs": 1234,
+  "configPath": "C:\\project\\mcpw.config.json"
+}
+```
+
+## GET /sources
+
+Returns configured sources, imported tool names, and diagnostics.
+
+Example response:
+
+```json
+{
+  "sources": [
+    {
+      "id": "fixture-mcp",
+      "kind": "mcp",
+      "transport": "fixture",
+      "fixturePath": "tests/fixtures/mcp-tools-list.json",
+      "defaultPolicy": "deny-unknown",
+      "timeoutMs": 5000
+    }
+  ],
+  "diagnostics": [
+    "fixture-mcp:repo.apply_patch missing outputTrust"
+  ],
+  "importedTools": ["tests.get_failures", "repo.apply_patch"]
+}
+```
+
+## POST /workflows/check
+
+Validates and policy-checks a workflow. It does not execute the workflow.
+
+Request body:
+
+```json
+{
+  "version": "0.1",
+  "workflow": "imported_mcp_tool",
+  "steps": [
+    {
+      "id": "failures",
+      "op": "tool.call",
+      "tool": "tests.get_failures",
+      "args": { "limit": 1 }
+    }
+  ]
+}
+```
+
+Successful response:
+
+```json
+{
+  "ok": true,
+  "status": 200,
+  "workflow": "imported_mcp_tool",
+  "effects": ["read.tests"],
+  "approvals": { "required": [] },
+  "diagnostics": []
+}
+```
+
+## POST /workflows/plan
+
+Currently returns the same structured result as `/workflows/check`. Use this endpoint when the caller wants a policy and approval preview without implying execution.
+
+## POST /workflows/run
+
+Runs a workflow only if it validates, has no denied effects, and requires no approvals.
+
+Successful response includes:
+
+- `ok`
+- `trace`
+- `outputs`
+
+Failure responses include:
+
+- `ok: false`
+- `code`
+- `message`
+
+Common error codes:
+
+- `WORKFLOW_INVALID`
+- `POLICY_DENIED`
+- `APPROVAL_REQUIRED`
+- `NOT_FOUND`
+- `INTERNAL_ERROR`
+
+## Security Notes
+
+The service is intended for local use. Bind to `127.0.0.1` unless you have added an external authentication and network security layer. Approval-required workflows do not run in the current service runtime.
