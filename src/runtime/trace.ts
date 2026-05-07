@@ -35,12 +35,21 @@ export class TraceRecorder {
 
 function redact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redact);
+  if (typeof value === "string") return redactString(value);
   if (typeof value === "object" && value !== null) {
     const output: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value)) {
-      output[key] = key.toLowerCase().includes("secret") ? "[REDACTED]" : redact(item);
+      output[key] = isSensitiveKey(key) ? "[REDACTED]" : redact(item);
     }
     return output;
   }
   return value;
+}
+
+function isSensitiveKey(key: string): boolean {
+  return /(?:secret|token|password|api[_-]?key)/i.test(key);
+}
+
+function redactString(value: string): string {
+  return value.replace(/\b((?:api[_-]?key)|(?:access[_-]?token)|(?:auth[_-]?token)|token|password|secret)\s*=\s*[^\s"'&]+/gi, "$1=[REDACTED]");
 }

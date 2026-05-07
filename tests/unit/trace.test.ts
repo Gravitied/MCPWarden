@@ -10,4 +10,13 @@ describe("trace recorder", () => {
     expect(JSON.stringify(trace.snapshot())).not.toContain("should-not-appear");
     expect(trace.snapshot().events).toHaveLength(2);
   });
+
+  it("redacts key-value API keys inside string output", () => {
+    const trace = new TraceRecorder("run_2", "triage");
+    trace.completed("x", { log: "apiKey=abc123456789" });
+
+    const snapshot = JSON.stringify(trace.snapshot());
+    expect(snapshot).not.toContain("abc123456789");
+    expect(snapshot).toContain("apiKey=[REDACTED]");
+  });
 });
