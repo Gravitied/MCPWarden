@@ -33,4 +33,34 @@ describe("MCP tools/list adapter", () => {
     });
     expect(tools.map((tool) => tool.name)).toEqual(["tests.get_failures", "repo.apply_patch"]);
   });
+
+  it("loads stdio tools through an MCP client factory", async () => {
+    const adapter = new McpToolsListAdapter({
+      clientFactory: {
+        async createClient() {
+          return {
+            async listTools() {
+              return fixtureMcpToolsList;
+            },
+            async callTool() {
+              return { content: [] };
+            },
+            async close() {}
+          };
+        }
+      }
+    });
+
+    const tools = await adapter.loadTools({
+      id: "stdio-mcp",
+      kind: "mcp",
+      transport: "stdio",
+      command: "node",
+      args: ["server.js"],
+      defaultPolicy: "deny-unknown",
+      timeoutMs: 5000
+    });
+
+    expect(tools.map((tool) => tool.name)).toEqual(["tests.get_failures", "repo.apply_patch"]);
+  });
 });

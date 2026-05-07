@@ -5,6 +5,7 @@ import { demoTools } from "../manifests/demoManifests.js";
 import { buildUniversalToolRegistry } from "../manifests/universalRegistry.js";
 import { runtimeVersion } from "../packageInfo.js";
 import type { Policy } from "../policy/policy.js";
+import type { ToolBroker } from "../runtime/broker.js";
 import { checkWorkflowPayload, runWorkflowPayload } from "./workflowHandlers.js";
 
 const defaultPolicy: Policy = {
@@ -19,6 +20,7 @@ export type ServiceOptions = {
   host?: string;
   port?: number;
   policy?: Policy;
+  broker?: ToolBroker;
 };
 
 export async function createService(options: ServiceOptions = {}) {
@@ -64,11 +66,15 @@ export async function createService(options: ServiceOptions = {}) {
       }
 
       if (request.method === "POST" && request.url === "/workflows/run") {
-        const result = await runWorkflowPayload(await readJson(request), {
+        const deps = {
           config: bundle.config,
           overrides: bundle.overrides,
           policy: options.policy ?? defaultPolicy
-        });
+        };
+        const result = await runWorkflowPayload(
+          await readJson(request),
+          options.broker ? { ...deps, broker: options.broker } : deps
+        );
         return send(response, result.status, result);
       }
 

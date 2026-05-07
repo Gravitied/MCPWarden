@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import type { McpSourceConfig } from "../config/config.js";
+import { SdkMcpClientFactory, type McpClientFactory } from "./mcpClient.js";
 import type { ImportedTool, ToolSourceAdapter } from "./toolSourceAdapter.js";
 
 const mcpToolSchema = z.object({
@@ -16,10 +17,10 @@ export type McpToolsList = z.infer<typeof mcpToolsListSchema>;
 export class McpToolsListAdapter implements ToolSourceAdapter<McpSourceConfig> {
   readonly kind = "mcp" as const;
 
-  constructor(private readonly options: { toolsList?: unknown } = {}) {}
+  constructor(private readonly options: { toolsList?: unknown; clientFactory?: McpClientFactory } = {}) {}
 
   async loadTools(config: McpSourceConfig): Promise<ImportedTool[]> {
-    const raw = this.options.toolsList ?? (await this.loadFixture(config));
+    const raw = this.options.toolsList ?? (config.transport === "fixture" ? await this.loadFixture(config) : await this.loadLive(config));
     const list = mcpToolsListSchema.parse(raw);
     return list.tools.map((tool) => ({
       name: tool.name,
@@ -37,5 +38,14 @@ export class McpToolsListAdapter implements ToolSourceAdapter<McpSourceConfig> {
       throw new Error(`MCP source "${config.id}" requires fixturePath for deterministic import`);
     }
     return JSON.parse(await readFile(config.fixturePath, "utf8"));
+  }
+
+  private async loadLive(config: McpSourceConfig): Promise<unknown> {
+    const client = await (this.options.clientFactory ?? new SdkMcpClientFactory()).createClient(config);
+    try {
+      return await client.listTools();
+    } finally {
+      await client.close();
+    }
   }
 }

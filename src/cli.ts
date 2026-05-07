@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { Command } from "commander";
+import { CompositeToolBroker } from "./adapters/compositeToolBroker.js";
+import { McpToolBroker } from "./adapters/mcpToolBroker.js";
 import { MockAgentRegistry } from "./adapters/mockAgents.js";
 import { MockToolBroker } from "./adapters/mockTools.js";
 import { InMemoryArtifactStore } from "./artifacts/artifactStore.js";
@@ -10,11 +12,13 @@ import { parseManifestOverrides, parseMcpwConfig } from "./config/config.js";
 import { validateWorkflow } from "./ir/validate.js";
 import type { Workflow } from "./ir/workflow.js";
 import { demoTools } from "./manifests/demoManifests.js";
+import type { UniversalRegistryResult } from "./manifests/universalRegistry.js";
 import { buildUniversalToolRegistry } from "./manifests/universalRegistry.js";
 import { runtimeVersion } from "./packageInfo.js";
 import { checkWorkflow } from "./policy/checker.js";
 import type { Policy } from "./policy/policy.js";
 import { executeWorkflow } from "./runtime/executor.js";
+import type { ToolBroker } from "./runtime/broker.js";
 import { createService } from "./service/httpService.js";
 
 const policy: Policy = {
@@ -74,6 +78,22 @@ function countManifestsByName(manifests: { name: string }[]): Map<string, number
   const counts = new Map<string, number>();
   for (const manifest of manifests) counts.set(manifest.name, (counts.get(manifest.name) ?? 0) + 1);
   return counts;
+}
+
+async function brokerForCliRun(configPath: string | undefined, registryResult: UniversalRegistryResult): Promise<ToolBroker> {
+  if (!configPath || registryResult.importedTools.length === 0) return new MockToolBroker();
+
+  const { config } = await loadConfigBundle(configPath);
+  const liveSourceIds = new Set(config.sources.filter((source) => source.transport !== "fixture").map((source) => source.id));
+  const liveToolToSource = new Map(
+    registryResult.importedTools
+      .filter((tool) => liveSourceIds.has(tool.sourceId))
+      .map((tool) => [tool.name, tool.sourceId])
+  );
+
+  if (liveToolToSource.size === 0) return new MockToolBroker();
+  const mcpBroker = new McpToolBroker({ sources: config.sources, toolToSource: liveToolToSource });
+  return new CompositeToolBroker(new Set(liveToolToSource.keys()), mcpBroker, new MockToolBroker());
 }
 
 const program = new Command();
@@ -171,7 +191,7 @@ program
       throw new Error(`approval required: ${check.approvals.required.join(",")}`);
     }
     const result = await executeWorkflow(workflow, {
-      broker: new MockToolBroker(),
+      broker: await brokerForCliRun(options.config, registryResult),
       agents: new MockAgentRegistry(),
       artifacts: new InMemoryArtifactStore()
     });
