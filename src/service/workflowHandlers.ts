@@ -4,6 +4,7 @@ import { InMemoryArtifactStore } from "../artifacts/artifactStore.js";
 import type { McpwConfig, ManifestOverrides } from "../config/config.js";
 import { validateWorkflow } from "../ir/validate.js";
 import { demoTools } from "../manifests/demoManifests.js";
+import { unresolvedImportedToolDenials } from "../manifests/unresolvedImports.js";
 import { buildUniversalToolRegistry } from "../manifests/universalRegistry.js";
 import { checkWorkflow } from "../policy/checker.js";
 import type { Policy } from "../policy/policy.js";
@@ -27,8 +28,9 @@ export async function checkWorkflowPayload(payload: unknown, deps: WorkflowOpera
     overrides: deps.overrides
   });
   const result = checkWorkflow(validation.workflow, registryResult.registry, deps.policy);
-  if (result.denied.length > 0) {
-    return { ok: false as const, status: 403, code: "POLICY_DENIED", message: result.denied.join("\n") };
+  const denied = [...unresolvedImportedToolDenials(validation.workflow, registryResult, demoTools), ...result.denied];
+  if (denied.length > 0) {
+    return { ok: false as const, status: 403, code: "POLICY_DENIED", message: denied.join("\n") };
   }
 
   return {
@@ -42,24 +44,33 @@ export async function checkWorkflowPayload(payload: unknown, deps: WorkflowOpera
 }
 
 export async function runWorkflowPayload(payload: unknown, deps: WorkflowOperationDeps) {
-  const checked = await checkWorkflowPayload(payload, deps);
-  if (!checked.ok) return checked;
-  if (checked.approvals.required.length > 0) {
+  const validation = validateWorkflow(payload);
+  if (!validation.ok) return { ok: false as const, status: 400, code: "WORKFLOW_INVALID", message: validation.errors.join("\n") };
+
+  const registryResult = await buildUniversalToolRegistry({
+    builtInTools: demoTools,
+    sources: deps.config.sources,
+    overrides: deps.overrides
+  });
+  const check = checkWorkflow(validation.workflow, registryResult.registry, deps.policy);
+  const denied = [...unresolvedImportedToolDenials(validation.workflow, registryResult, demoTools), ...check.denied];
+  if (denied.length > 0) {
+    return { ok: false as const, status: 403, code: "POLICY_DENIED", message: denied.join("\n") };
+  }
+  if (check.approvals.required.length > 0) {
     return {
       ok: false as const,
       status: 403,
       code: "APPROVAL_REQUIRED",
-      message: `approval required: ${checked.approvals.required.join(",")}`
+      message: `approval required: ${check.approvals.required.join(",")}`
     };
   }
-
-  const validation = validateWorkflow(payload);
-  if (!validation.ok) return { ok: false as const, status: 400, code: "WORKFLOW_INVALID", message: validation.errors.join("\n") };
 
   const result = await executeWorkflow(validation.workflow, {
     broker: deps.broker ?? new MockToolBroker(),
     agents: new MockAgentRegistry(),
-    artifacts: new InMemoryArtifactStore()
+    artifacts: new InMemoryArtifactStore(),
+    stepTrust: check.stepTrust
   });
 
   return { status: result.ok ? 200 : 500, ...result };

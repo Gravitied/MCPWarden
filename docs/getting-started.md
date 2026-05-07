@@ -123,6 +123,8 @@ Execution returns JSON with:
 mcpw serve --config examples/mcpw.config.json
 ```
 
+The service prints two lines: the listening URL and a bearer token. Keep that token local and send it on every endpoint except `/health`.
+
 The service listens on the configured host and port. Defaults are:
 
 ```json
@@ -138,4 +140,11 @@ Check health:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8765/health
+```
+
+Call authenticated endpoints:
+
+```powershell
+$headers = @{ Authorization = "Bearer <printed-token>" }
+Invoke-RestMethod http://127.0.0.1:8765/sources -Headers $headers
 ```

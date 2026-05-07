@@ -90,13 +90,20 @@ Start the local service:
 mcpw serve --config examples/mcpw.config.json
 ```
 
+The service prints an in-memory bearer token on startup. Send that token on every non-health request:
+
+```powershell
+$headers = @{ Authorization = "Bearer <printed-token>" }
+Invoke-RestMethod http://127.0.0.1:8765/sources -Headers $headers
+```
+
 Then call:
 
-- `GET http://127.0.0.1:8765/health`
-- `GET http://127.0.0.1:8765/sources`
-- `POST http://127.0.0.1:8765/workflows/check`
-- `POST http://127.0.0.1:8765/workflows/plan`
-- `POST http://127.0.0.1:8765/workflows/run`
+- `GET http://127.0.0.1:8765/health`: public health check.
+- `GET http://127.0.0.1:8765/sources`: requires `Authorization: Bearer <token>`.
+- `POST http://127.0.0.1:8765/workflows/check`: requires bearer token and `Content-Type: application/json`.
+- `POST http://127.0.0.1:8765/workflows/plan`: requires bearer token and `Content-Type: application/json`.
+- `POST http://127.0.0.1:8765/workflows/run`: requires bearer token and `Content-Type: application/json`.
 
 ## Core Concepts
 
@@ -222,6 +229,7 @@ Policy decides which effects are allowed, denied, or approval-required. Policy d
 - [Security Model](docs/security-model.md)
 - [Workflow IR](docs/workflow-ir.md)
 - [Development Guide](docs/development.md)
+- [Release Process](docs/release.md)
 
 ## Development
 
@@ -238,3 +246,7 @@ pnpm bench
 ## What This Is Not
 
 MCPWarden is not a general programming language, not a shell replacement, not a durable workflow scheduler, and not a hosted control plane. It reduces execution risk around model-proposed workflows, but it does not guarantee that a valid workflow is the right workflow for a human goal.
+
+## License
+
+MCPWarden is released under the [MIT License](LICENSE).

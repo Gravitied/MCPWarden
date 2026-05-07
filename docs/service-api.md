@@ -8,12 +8,20 @@
 mcpw serve --config mcpw.config.json
 ```
 
+Startup prints the listening URL and a bearer token:
+
+```text
+mcpw service listening at http://127.0.0.1:8765
+mcpw service token <token>
+```
+
 Options:
 
 - `--config <path>`
 - `--overrides <path>`
 - `--host <host>`
 - `--port <port>`
+- `--auth-token <token>`
 
 Default service settings:
 
@@ -27,6 +35,8 @@ Default service settings:
 ## GET /health
 
 Returns service status.
+
+This is the only unauthenticated endpoint.
 
 Example response:
 
@@ -42,6 +52,12 @@ Example response:
 ## GET /sources
 
 Returns configured sources, imported tool names, and diagnostics.
+
+Required header:
+
+```http
+Authorization: Bearer <token>
+```
 
 Example response:
 
@@ -67,6 +83,13 @@ Example response:
 ## POST /workflows/check
 
 Validates and policy-checks a workflow. It does not execute the workflow.
+
+Required headers:
+
+```http
+Authorization: Bearer <token>
+Content-Type: application/json
+```
 
 Request body:
 
@@ -123,9 +146,12 @@ Common error codes:
 - `WORKFLOW_INVALID`
 - `POLICY_DENIED`
 - `APPROVAL_REQUIRED`
+- `UNAUTHORIZED`
+- `FORBIDDEN_ORIGIN`
+- `UNSUPPORTED_MEDIA_TYPE`
 - `NOT_FOUND`
 - `INTERNAL_ERROR`
 
 ## Security Notes
 
-The service is intended for local use. Bind to `127.0.0.1` unless you have added an external authentication and network security layer. Approval-required workflows do not run in the current service runtime.
+The service is intended for local use. Bind to `127.0.0.1` unless you have added an external network security layer. Non-health endpoints require a bearer token, reject browser `Origin` headers, and require JSON content for POST requests. Approval-required workflows do not run in the current service runtime.

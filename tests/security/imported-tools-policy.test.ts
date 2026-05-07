@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { McpToolsListAdapter } from "../../src/adapters/mcpToolsListAdapter.js";
 import { buildUniversalToolRegistry } from "../../src/manifests/universalRegistry.js";
+import { unresolvedImportedToolDenials } from "../../src/manifests/unresolvedImports.js";
 import { checkWorkflow } from "../../src/policy/checker.js";
 import { fixtureMcpToolsList } from "../fixtures/mcpToolsList.js";
 
@@ -56,5 +57,25 @@ describe("imported tool policy boundaries", () => {
 
     expect(() => result.registry.effectsForToolCall("tests.get_failures", {})).toThrow("unknown tool: tests.get_failures");
     expect(result.diagnostics.join("\n")).toContain("missing effectRules");
+  });
+
+  it("denies unresolved imported tools instead of falling back to same-name built-ins", async () => {
+    const { demoTools } = await import("../../src/manifests/demoManifests.js");
+    const result = await buildUniversalToolRegistry({
+      builtInTools: demoTools,
+      sources: [{ id: "fixture-mcp", kind: "mcp", transport: "fixture", defaultPolicy: "deny-unknown", timeoutMs: 5000 }],
+      overrides: { sources: {} },
+      adapters: { mcp: new McpToolsListAdapter({ toolsList: fixtureMcpToolsList }) }
+    });
+
+    const workflow = {
+      version: "0.1" as const,
+      workflow: "same_name_fallback",
+      steps: [{ id: "failures", op: "tool.call" as const, tool: "tests.get_failures", args: {} }]
+    };
+
+    const denials = unresolvedImportedToolDenials(workflow, result, demoTools);
+
+    expect(denials).toContain("unknown tool: tests.get_failures");
   });
 });

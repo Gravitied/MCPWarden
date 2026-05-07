@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { CompositeToolBroker } from "../adapters/compositeToolBroker.js";
@@ -24,20 +25,26 @@ export type ServiceOptions = {
   port?: number;
   policy?: Policy;
   broker?: ToolBroker;
+  authToken?: string;
 };
 
 export async function createService(options: ServiceOptions = {}) {
   const bundle = await loadConfigBundle(toConfigInput(options));
   const startedAt = Date.now();
+  const authToken = options.authToken ?? randomBytes(32).toString("base64url");
   let url = "";
 
   const server = createServer(async (request, response) => {
     try {
-      if (request.method === "GET" && request.url === "/health") {
+      const pathname = request.url?.split("?")[0] ?? "/";
+      const rejection = authorizeRequest(request, pathname, authToken);
+      if (rejection) return send(response, rejection.status, { ok: false, code: rejection.code, message: rejection.message });
+
+      if (request.method === "GET" && pathname === "/health") {
         return send(response, 200, { ok: true, version: runtimeVersion, uptimeMs: Date.now() - startedAt, configPath: bundle.configPath });
       }
 
-      if (request.method === "GET" && request.url === "/sources") {
+      if (request.method === "GET" && pathname === "/sources") {
         const registry = await buildUniversalToolRegistry({
           builtInTools: demoTools,
           sources: bundle.config.sources,
@@ -50,7 +57,7 @@ export async function createService(options: ServiceOptions = {}) {
         });
       }
 
-      if (request.method === "POST" && request.url === "/workflows/check") {
+      if (request.method === "POST" && pathname === "/workflows/check") {
         const result = await checkWorkflowPayload(await readJson(request), {
           config: bundle.config,
           overrides: bundle.overrides,
@@ -59,7 +66,7 @@ export async function createService(options: ServiceOptions = {}) {
         return send(response, result.status, result);
       }
 
-      if (request.method === "POST" && request.url === "/workflows/plan") {
+      if (request.method === "POST" && pathname === "/workflows/plan") {
         const result = await checkWorkflowPayload(await readJson(request), {
           config: bundle.config,
           overrides: bundle.overrides,
@@ -68,7 +75,7 @@ export async function createService(options: ServiceOptions = {}) {
         return send(response, result.status, result);
       }
 
-      if (request.method === "POST" && request.url === "/workflows/run") {
+      if (request.method === "POST" && pathname === "/workflows/run") {
         const broker = options.broker ?? (await defaultServiceBroker());
         const deps = {
           config: bundle.config,
@@ -95,6 +102,9 @@ export async function createService(options: ServiceOptions = {}) {
   return {
     get url() {
       return url;
+    },
+    get authToken() {
+      return authToken;
     },
     async start() {
       const host = options.host ?? bundle.config.service.host;
@@ -125,6 +135,52 @@ export async function createService(options: ServiceOptions = {}) {
     const mcpBroker = new McpToolBroker({ sources: bundle.config.sources, toolToSource: liveToolToSource });
     return new CompositeToolBroker(new Set(liveToolToSource.keys()), mcpBroker, new MockToolBroker());
   }
+}
+
+function authorizeRequest(
+  request: IncomingMessage,
+  pathname: string,
+  authToken: string
+): { status: number; code: string; message: string } | undefined {
+  if (request.method === "GET" && pathname === "/health") return undefined;
+
+  const origin = headerValue(request.headers.origin);
+  if (origin) {
+    return { status: 403, code: "FORBIDDEN_ORIGIN", message: "browser origins are not accepted by the local service" };
+  }
+
+  const fetchSite = headerValue(request.headers["sec-fetch-site"]);
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "same-site" && fetchSite !== "none") {
+    return { status: 403, code: "FORBIDDEN_ORIGIN", message: "cross-site browser requests are not accepted by the local service" };
+  }
+
+  if (!isAuthorized(request, authToken)) {
+    return { status: 401, code: "UNAUTHORIZED", message: "missing or invalid bearer token" };
+  }
+
+  if (request.method === "POST" && !isJsonRequest(request)) {
+    return { status: 415, code: "UNSUPPORTED_MEDIA_TYPE", message: "POST requests must use content-type application/json" };
+  }
+
+  return undefined;
+}
+
+function isAuthorized(request: IncomingMessage, authToken: string): boolean {
+  const header = headerValue(request.headers.authorization);
+  const prefix = "Bearer ";
+  if (!header?.startsWith(prefix)) return false;
+
+  const supplied = Buffer.from(header.slice(prefix.length));
+  const expected = Buffer.from(authToken);
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+function isJsonRequest(request: IncomingMessage): boolean {
+  return (headerValue(request.headers["content-type"]) ?? "").toLowerCase().split(";")[0]?.trim() === "application/json";
+}
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function toConfigInput(options: ServiceOptions): { configPath?: string; overridesPath?: string } {

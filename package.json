@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "A policy-checkable MCP workflow runtime with safe tool discovery, approval planning, and a local service API.",
   "private": false,
+  "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@10.33.4",
   "bin": {
     "mcpw": "./dist/cli.js"
   },
@@ -16,6 +18,9 @@
     "templates",
     "examples",
     "docs",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
     "README.md",
     "package.json"
   ],
@@ -25,6 +30,13 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/Gravitied/mcp-workflow-ir-runtime.git"
+  },
+  "homepage": "https://github.com/Gravitied/mcp-workflow-ir-runtime#readme",
+  "bugs": {
+    "url": "https://github.com/Gravitied/mcp-workflow-ir-runtime/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "mcp",
@@ -44,6 +56,7 @@
     "test:security": "vitest run tests/security",
     "test:e2e": "vitest run tests/e2e",
     "test:package": "vitest run tests/e2e/package-smoke.test.ts",
+    "release:check": "pnpm check && pnpm test && pnpm test:package && pnpm audit --audit-level low",
     "bench": "vitest bench tests/bench",
     "cli": "tsx src/cli.ts",
     "prepack": "pnpm build"

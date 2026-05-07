@@ -11,6 +11,7 @@ export * from "./cli/doctor.js";
 export * from "./cli/init.js";
 export * from "./cli/output.js";
 export * from "./manifests/overrides.js";
+export * from "./manifests/unresolvedImports.js";
 export * from "./manifests/universalRegistry.js";
 export * from "./manifests/registry.js";
 export * from "./manifests/toolManifest.js";

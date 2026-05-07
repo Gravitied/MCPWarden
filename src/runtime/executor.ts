@@ -2,6 +2,7 @@ import type { AgentRegistry } from "../agents/agent.js";
 import type { InMemoryArtifactStore } from "../artifacts/artifactStore.js";
 import { isRefExpr } from "../ir/refs.js";
 import type { Workflow } from "../ir/workflow.js";
+import type { TrustLabel } from "../trust/trust.js";
 import type { ToolBroker } from "./broker.js";
 import { TraceRecorder, type WorkflowTrace } from "./trace.js";
 
@@ -9,6 +10,7 @@ export type ExecutionDeps = {
   broker: ToolBroker;
   agents: AgentRegistry;
   artifacts: InMemoryArtifactStore;
+  stepTrust?: ReadonlyMap<string, TrustLabel>;
 };
 
 export type ExecutionResult =
@@ -18,6 +20,7 @@ export type ExecutionResult =
 export async function executeWorkflow(workflow: Workflow, deps: ExecutionDeps): Promise<ExecutionResult> {
   const trace = new TraceRecorder(`run_${Date.now()}`, workflow.workflow);
   const outputs: Record<string, unknown> = {};
+  const publicOutputs: Record<string, unknown> = {};
 
   try {
     for (const step of workflow.steps) {
@@ -42,13 +45,18 @@ export async function executeWorkflow(workflow: Workflow, deps: ExecutionDeps): 
       }
 
       outputs[step.id] = output;
-      trace.completed(step.id, output);
+      publicOutputs[step.id] = redactForTrust(output, deps.stepTrust?.get(step.id));
+      trace.completed(step.id, publicOutputs[step.id]);
     }
 
-    return { ok: true, trace: trace.snapshot(), outputs };
+    return { ok: true, trace: trace.snapshot(), outputs: publicOutputs };
   } catch (error) {
-    return { ok: false, trace: trace.snapshot(), error: error instanceof Error ? error.message : String(error), outputs };
+    return { ok: false, trace: trace.snapshot(), error: error instanceof Error ? error.message : String(error), outputs: publicOutputs };
   }
+}
+
+function redactForTrust(value: unknown, trust: TrustLabel | undefined): unknown {
+  return trust === "secret" ? "[REDACTED]" : value;
 }
 
 function resolveRefs(value: unknown, outputs: Record<string, unknown>): Record<string, unknown> {

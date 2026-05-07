@@ -10,8 +10,8 @@ import { runDoctor } from "./cli/doctor.js";
 import { initializeProject } from "./cli/init.js";
 import { parseManifestOverrides, parseMcpwConfig } from "./config/config.js";
 import { validateWorkflow } from "./ir/validate.js";
-import type { Workflow } from "./ir/workflow.js";
 import { demoTools } from "./manifests/demoManifests.js";
+import { unresolvedImportedToolDenials } from "./manifests/unresolvedImports.js";
 import type { UniversalRegistryResult } from "./manifests/universalRegistry.js";
 import { buildUniversalToolRegistry } from "./manifests/universalRegistry.js";
 import { runtimeVersion } from "./packageInfo.js";
@@ -54,30 +54,6 @@ async function loadConfigBundle(configPath: string | undefined) {
 async function buildRegistryForCli(configPath: string | undefined) {
   const { config, overrides } = await loadConfigBundle(configPath);
   return buildUniversalToolRegistry({ builtInTools: demoTools, sources: config.sources, overrides });
-}
-
-type CliRegistryResult = Awaited<ReturnType<typeof buildRegistryForCli>>;
-
-function unresolvedImportedToolDenials(workflow: Workflow, registryResult: CliRegistryResult): string[] {
-  const builtInCounts = countManifestsByName(demoTools);
-  const manifestCounts = countManifestsByName(registryResult.manifests);
-  const unresolvedImports = new Set(
-    registryResult.importedTools
-      .filter((tool) => (manifestCounts.get(tool.name) ?? 0) <= (builtInCounts.get(tool.name) ?? 0))
-      .map((tool) => tool.name)
-  );
-  const usedUnresolvedImports = new Set(
-    workflow.steps
-      .filter((step) => step.op === "tool.call" && unresolvedImports.has(step.tool))
-      .map((step) => (step.op === "tool.call" ? step.tool : ""))
-  );
-  return [...usedUnresolvedImports].map((toolName) => `unknown tool: ${toolName}`);
-}
-
-function countManifestsByName(manifests: { name: string }[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const manifest of manifests) counts.set(manifest.name, (counts.get(manifest.name) ?? 0) + 1);
-  return counts;
 }
 
 async function brokerForCliRun(configPath: string | undefined, registryResult: UniversalRegistryResult): Promise<ToolBroker> {
@@ -135,15 +111,18 @@ program
   .option("--overrides <path>")
   .option("--host <host>")
   .option("--port <port>")
-  .action(async (options: { config?: string; overrides?: string; host?: string; port?: string }) => {
-    const serviceOptions: { configPath?: string; overridesPath?: string; host?: string; port?: number } = {};
+  .option("--auth-token <token>")
+  .action(async (options: { config?: string; overrides?: string; host?: string; port?: string; authToken?: string }) => {
+    const serviceOptions: { configPath?: string; overridesPath?: string; host?: string; port?: number; authToken?: string } = {};
     if (options.config) serviceOptions.configPath = options.config;
     if (options.overrides) serviceOptions.overridesPath = options.overrides;
     if (options.host) serviceOptions.host = options.host;
     if (options.port) serviceOptions.port = Number(options.port);
+    if (options.authToken) serviceOptions.authToken = options.authToken;
     const service = await createService(serviceOptions);
     await service.start();
     console.log(`mcpw service listening at ${service.url}`);
+    console.log(`mcpw service token ${service.authToken}`);
   });
 
 program
@@ -154,7 +133,7 @@ program
     const workflow = await loadWorkflow(path);
     const registryResult = await buildRegistryForCli(options.config);
     const result = checkWorkflow(workflow, registryResult.registry, policy);
-    const denied = [...unresolvedImportedToolDenials(workflow, registryResult), ...result.denied];
+    const denied = [...unresolvedImportedToolDenials(workflow, registryResult, demoTools), ...result.denied];
     if (denied.length > 0) throw new Error([...registryResult.diagnostics, ...denied].join("\n"));
     console.log(`OK workflow=${workflow.workflow} steps=${workflow.steps.length} effects=${result.effects.join(",")}`);
     console.log(`Approvals required: ${result.approvals.required.join(",") || "none"}`);
@@ -168,7 +147,7 @@ program
     const workflow = await loadWorkflow(path);
     const registryResult = await buildRegistryForCli(options.config);
     const result = checkWorkflow(workflow, registryResult.registry, policy);
-    const denied = [...unresolvedImportedToolDenials(workflow, registryResult), ...result.denied];
+    const denied = [...unresolvedImportedToolDenials(workflow, registryResult, demoTools), ...result.denied];
     console.log(`Workflow: ${workflow.workflow}`);
     console.log(`Effects: ${result.effects.join(",") || "none"}`);
     console.log(`Approvals required: ${result.approvals.required.join(",") || "none"}`);
@@ -185,7 +164,7 @@ program
     const workflow = await loadWorkflow(path);
     const registryResult = await buildRegistryForCli(options.config);
     const check = checkWorkflow(workflow, registryResult.registry, policy);
-    const denied = [...unresolvedImportedToolDenials(workflow, registryResult), ...check.denied];
+    const denied = [...unresolvedImportedToolDenials(workflow, registryResult, demoTools), ...check.denied];
     if (denied.length > 0) throw new Error([...registryResult.diagnostics, ...denied].join("\n"));
     if (check.approvals.required.length > 0) {
       throw new Error(`approval required: ${check.approvals.required.join(",")}`);
@@ -193,7 +172,8 @@ program
     const result = await executeWorkflow(workflow, {
       broker: await brokerForCliRun(options.config, registryResult),
       agents: new MockAgentRegistry(),
-      artifacts: new InMemoryArtifactStore()
+      artifacts: new InMemoryArtifactStore(),
+      stepTrust: check.stepTrust
     });
     console.log(JSON.stringify(result, null, 2));
   });

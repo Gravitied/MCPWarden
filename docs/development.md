@@ -80,6 +80,7 @@ This test:
 
 ## Release Checklist
 
+- `pnpm release:check`
 - `pnpm check`
 - `pnpm test`
 - `pnpm test:security`
@@ -88,3 +89,5 @@ This test:
 - `npm pack --dry-run --json --ignore-scripts`
 - Inspect package contents for `dist/cli.js`.
 - Confirm package contents exclude `src/`, `tests/`, `coverage/`, and `dist/tests/`.
+
+See [Release Process](release.md) for tag and npm publish steps.

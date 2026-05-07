@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createService } from "../../src/service/httpService.js";
 
+function authHeaders(service: unknown): Record<string, string> {
+  const token = (service as { authToken?: string }).authToken;
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
 describe("local service", () => {
   it("serves health and sources endpoints", async () => {
     const service = await createService({ configPath: "examples/mcpw.config.json", port: 0 });
@@ -13,7 +18,7 @@ describe("local service", () => {
       expect(health.ok).toBe(true);
       expect(health.version).toBe("0.1.0");
 
-      const sources = await fetch(`${service.url}/sources`).then((response) => response.json());
+      const sources = await fetch(`${service.url}/sources`, { headers: authHeaders(service) }).then((response) => response.json());
       expect(sources.sources[0].id).toBe("fixture-mcp");
     } finally {
       await service.stop();
@@ -26,7 +31,7 @@ describe("local service", () => {
     try {
       const response = await fetch(`${service.url}/workflows/check`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders(service) },
         body: JSON.stringify({
           version: "0.1",
           workflow: "imported_mcp_tool",
@@ -91,7 +96,7 @@ describe("local service", () => {
       try {
         const response = await fetch(`${service.url}/workflows/run`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...authHeaders(service) },
           body: JSON.stringify({
             version: "0.1",
             workflow: "custom_run",
@@ -150,7 +155,7 @@ describe("local service", () => {
       try {
         const response = await fetch(`${service.url}/workflows/run`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...authHeaders(service) },
           body: JSON.stringify({
             version: "0.1",
             workflow: "stdio_run",
