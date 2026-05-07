@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolve } from "node:path";
 import { McpToolsListAdapter } from "../../src/adapters/mcpToolsListAdapter.js";
 import { fixtureMcpToolsList } from "../fixtures/mcpToolsList.js";
 
@@ -62,5 +63,20 @@ describe("MCP tools/list adapter", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual(["tests.get_failures", "repo.apply_patch"]);
+  });
+
+  it("loads tools from a real stdio MCP server process", async () => {
+    const adapter = new McpToolsListAdapter();
+    const tools = await adapter.loadTools({
+      id: "stdio-real",
+      kind: "mcp",
+      transport: "stdio",
+      command: process.execPath,
+      args: [resolve("tests/fixtures/stdio-mcp-server.mjs")],
+      defaultPolicy: "deny-unknown",
+      timeoutMs: 5000
+    });
+
+    expect(tools.map((tool) => tool.name)).toContain("custom.echo");
   });
 });
