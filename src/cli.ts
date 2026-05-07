@@ -15,6 +15,7 @@ import { runtimeVersion } from "./packageInfo.js";
 import { checkWorkflow } from "./policy/checker.js";
 import type { Policy } from "./policy/policy.js";
 import { executeWorkflow } from "./runtime/executor.js";
+import { createService } from "./service/httpService.js";
 
 const policy: Policy = {
   allow: ["read.tests", "read.repo", "agent.debugger", "agent.coder", "run.tests"],
@@ -105,6 +106,24 @@ program
       for (const check of result.checks) console.log(`${check.ok ? "OK" : "FAIL"} ${check.code} ${check.message}`);
     }
     if (!result.ok) process.exitCode = 1;
+  });
+
+program
+  .command("serve")
+  .description("Start the local mcpw HTTP service")
+  .option("--config <path>")
+  .option("--overrides <path>")
+  .option("--host <host>")
+  .option("--port <port>")
+  .action(async (options: { config?: string; overrides?: string; host?: string; port?: string }) => {
+    const serviceOptions: { configPath?: string; overridesPath?: string; host?: string; port?: number } = {};
+    if (options.config) serviceOptions.configPath = options.config;
+    if (options.overrides) serviceOptions.overridesPath = options.overrides;
+    if (options.host) serviceOptions.host = options.host;
+    if (options.port) serviceOptions.port = Number(options.port);
+    const service = await createService(serviceOptions);
+    await service.start();
+    console.log(`mcpw service listening at ${service.url}`);
   });
 
 program

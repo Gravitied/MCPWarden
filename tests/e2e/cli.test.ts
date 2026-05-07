@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -100,4 +100,27 @@ describe("mcpw CLI", () => {
     expect(result.ok).toBe(true);
     expect(result.checks.some((check: { code: string }) => check.code === "SOURCE_OK")).toBe(true);
   });
+
+  it("starts service and responds to health", async () => {
+    const child = spawn(process.execPath, ["--import", tsxLoader, cliPath, "serve", "--config", "examples/mcpw.config.json", "--port", "0"], {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    try {
+      const line = await onceStdoutLine(child);
+      const url = line.match(/http:\/\/[^\s]+/)?.[0];
+      expect(url).toBeDefined();
+      const health = await fetch(`${url}/health`).then((response) => response.json());
+      expect(health.ok).toBe(true);
+    } finally {
+      child.kill();
+    }
+  });
 });
+
+function onceStdoutLine(child: ChildProcessWithoutNullStreams): Promise<string> {
+  return new Promise((resolve, reject) => {
+    child.stdout.once("data", (data) => resolve(String(data)));
+    child.stderr.once("data", (data) => reject(new Error(String(data))));
+  });
+}

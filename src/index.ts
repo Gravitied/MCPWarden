@@ -14,3 +14,5 @@ export * from "./manifests/toolManifest.js";
 export * from "./policy/checker.js";
 export * from "./policy/policy.js";
 export * from "./runtime/executor.js";
+export * from "./service/httpService.js";
+export * from "./service/workflowHandlers.js";
