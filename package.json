@@ -29,11 +29,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Gravitied/mcp-workflow-ir-runtime.git"
+    "url": "https://github.com/Gravitied/mcpwarden.git"
   },
-  "homepage": "https://github.com/Gravitied/mcp-workflow-ir-runtime#readme",
+  "homepage": "https://github.com/Gravitied/mcpwarden#readme",
   "bugs": {
-    "url": "https://github.com/Gravitied/mcp-workflow-ir-runtime/issues"
+    "url": "https://github.com/Gravitied/mcpwarden/issues"
   },
   "publishConfig": {
     "access": "public"

@@ -3,10 +3,10 @@
 The source repository is published to GitHub at:
 
 ```text
-https://github.com/Gravitied/mcp-workflow-ir-runtime
+https://github.com/Gravitied/mcpwarden
 ```
 
-The project display name is MCPWarden. The existing repository slug remains `mcp-workflow-ir-runtime` so existing remotes keep working.
+The project display name and repository slug are both MCPWarden. Use `mcpwarden` for npm package metadata, GitHub URLs, and new remotes.
 
 ## Suggested Repository Description
 
@@ -30,4 +30,4 @@ Use `main`.
 
 ## Recommended Visibility
 
-Private until you are ready to publish API stability guarantees and a license.
+Public for release. The repository includes a license, security policy, CI, release workflow, branch protection, and npm package metadata.
