@@ -1,0 +1,42 @@
+{
+  "version": "0.1",
+  "workflow": "triage_failing_tests",
+  "steps": [
+    {
+      "id": "failures",
+      "op": "tool.call",
+      "tool": "tests.get_failures",
+      "args": { "limit": 2 },
+      "saveAs": "ArtifactRef<TestFailure[]>"
+    },
+    {
+      "id": "analysis",
+      "op": "agent.ask",
+      "agent": "debugger",
+      "input": {
+        "task": "Find likely root cause.",
+        "context": { "$ref": "failures" }
+      },
+      "saveAs": "Trusted<DebugSummary>"
+    },
+    {
+      "id": "patch",
+      "op": "agent.ask",
+      "agent": "coder",
+      "input": {
+        "task": "Create minimal patch.",
+        "analysis": { "$ref": "analysis" }
+      },
+      "saveAs": "PatchRef"
+    },
+    {
+      "id": "preview",
+      "op": "tool.call",
+      "tool": "repo.apply_patch",
+      "args": {
+        "patch": { "$ref": "patch" },
+        "mode": "dry_run"
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "version": "0.1",
+  "workflow": "imported_mcp_tool",
+  "steps": [
+    {
+      "id": "failures",
+      "op": "tool.call",
+      "tool": "tests.get_failures",
+      "args": { "limit": 1 },
+      "saveAs": "ArtifactRef<TestFailure[]>"
+    }
+  ]
+}

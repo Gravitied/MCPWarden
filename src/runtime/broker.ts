@@ -1,0 +1,3 @@
+export type ToolBroker = {
+  callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+};

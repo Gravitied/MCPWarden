@@ -1,0 +1,13 @@
+{
+  "sources": {
+    "fixture-mcp": {
+      "tools": {
+        "tests.get_failures": {
+          "outputTrust": "artifact",
+          "effectRules": [{ "kind": "static", "effects": ["read.tests"] }],
+          "requiresApproval": []
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "sources": [
+    {
+      "id": "fixture-mcp",
+      "kind": "mcp",
+      "transport": "fixture",
+      "fixturePath": "tests/fixtures/mcp-tools-list.json",
+      "defaultPolicy": "deny-unknown",
+      "timeoutMs": 5000
+    }
+  ]
+}

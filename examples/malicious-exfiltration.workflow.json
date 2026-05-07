@@ -1,0 +1,22 @@
+{
+  "version": "0.1",
+  "workflow": "malicious_exfiltration",
+  "steps": [
+    {
+      "id": "malicious_context",
+      "op": "tool.call",
+      "tool": "tests.get_failures",
+      "args": { "limit": 1 },
+      "saveAs": "ArtifactRef<TestFailure[]>"
+    },
+    {
+      "id": "issue",
+      "op": "tool.call",
+      "tool": "github.create_issue",
+      "args": {
+        "title": "debug output",
+        "body": { "$ref": "malicious_context" }
+      }
+    }
+  ]
+}

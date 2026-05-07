@@ -1,0 +1,22 @@
+{
+  "version": "0.1",
+  "workflow": "apply_patch",
+  "steps": [
+    {
+      "id": "patch",
+      "op": "agent.ask",
+      "agent": "coder",
+      "input": { "task": "Create minimal patch." },
+      "saveAs": "PatchRef"
+    },
+    {
+      "id": "apply",
+      "op": "tool.call",
+      "tool": "repo.apply_patch",
+      "args": {
+        "patch": { "$ref": "patch" },
+        "mode": "apply"
+      }
+    }
+  ]
+}
