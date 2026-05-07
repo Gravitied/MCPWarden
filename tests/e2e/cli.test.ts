@@ -93,4 +93,11 @@ describe("mcpw CLI", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("runs doctor in JSON mode", async () => {
+    const { stdout } = await runCli(["doctor", "--config", "examples/mcpw.config.json", "--json"]);
+    const result = JSON.parse(stdout);
+    expect(result.ok).toBe(true);
+    expect(result.checks.some((check: { code: string }) => check.code === "SOURCE_OK")).toBe(true);
+  });
 });

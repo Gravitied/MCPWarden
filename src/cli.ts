@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { MockAgentRegistry } from "./adapters/mockAgents.js";
 import { MockToolBroker } from "./adapters/mockTools.js";
 import { InMemoryArtifactStore } from "./artifacts/artifactStore.js";
+import { runDoctor } from "./cli/doctor.js";
 import { initializeProject } from "./cli/init.js";
 import { parseManifestOverrides, parseMcpwConfig } from "./config/config.js";
 import { validateWorkflow } from "./ir/validate.js";
@@ -85,6 +86,25 @@ program
     const result = await initializeProject();
     for (const item of result.created) console.log(`created ${item.name}`);
     for (const item of result.skipped) console.log(`exists  ${item.name}`);
+  });
+
+program
+  .command("doctor")
+  .description("Verify mcpw install health, config, and source discovery")
+  .option("--config <path>")
+  .option("--overrides <path>")
+  .option("--json", "print JSON output")
+  .action(async (options: { config?: string; overrides?: string; json?: boolean }) => {
+    const doctorInput: { configPath?: string; overridesPath?: string } = {};
+    if (options.config) doctorInput.configPath = options.config;
+    if (options.overrides) doctorInput.overridesPath = options.overrides;
+    const result = await runDoctor(doctorInput);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      for (const check of result.checks) console.log(`${check.ok ? "OK" : "FAIL"} ${check.code} ${check.message}`);
+    }
+    if (!result.ok) process.exitCode = 1;
   });
 
 program
