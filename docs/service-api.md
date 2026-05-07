@@ -149,8 +149,14 @@ Common error codes:
 - `UNAUTHORIZED`
 - `FORBIDDEN_ORIGIN`
 - `UNSUPPORTED_MEDIA_TYPE`
+- `INVALID_JSON`
+- `PAYLOAD_TOO_LARGE`
 - `NOT_FOUND`
 - `INTERNAL_ERROR`
+
+## Debug Logging
+
+Set `MCPW_LOG_LEVEL=debug|info|warn|error` or `MCPW_DEBUG=1` before starting `mcpw serve` to emit structured JSON-line diagnostics to stderr. Logs include service lifecycle events, request ids, methods, paths, statuses, durations, and MCP tool/source operation status. MCPWarden does not log request bodies, authorization headers, bearer tokens, or tool arguments, and sensitive-looking values are redacted.
 
 ## Security Notes
 

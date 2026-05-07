@@ -39,6 +39,22 @@ Fields:
 - `host`: interface for the local HTTP service.
 - `port`: port for the local HTTP service. Use `0` in tests to ask the OS for an available port.
 
+## Debug Logging
+
+MCPWarden is quiet by default. Enable structured JSON-line diagnostics with environment variables:
+
+- `MCPW_LOG_LEVEL=debug|info|warn|error|silent`: sets the minimum log level.
+- `MCPW_DEBUG=1`: shortcut for debug logging when `MCPW_LOG_LEVEL` is not set.
+
+Logs are written to stderr. Service logs include lifecycle events, request method/path/status/duration, and request ids. MCP logs include source ids, tool names, operation status, and duration. Request headers, request bodies, bearer tokens, and tool arguments are not logged. Sensitive-looking fields such as `token`, `apiKey`, `password`, `secret`, and `authorization` are redacted before emission.
+
+Example:
+
+```powershell
+$env:MCPW_LOG_LEVEL = "debug"
+mcpw serve --config mcpw.config.json
+```
+
 ## MCP Source Config
 
 Fixture source:

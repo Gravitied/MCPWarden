@@ -10,6 +10,7 @@ import { buildUniversalToolRegistry } from "../manifests/universalRegistry.js";
 import { runtimeVersion } from "../packageInfo.js";
 import type { Policy } from "../policy/policy.js";
 import type { ToolBroker } from "../runtime/broker.js";
+import { createLoggerFromEnv, type Logger } from "../diagnostics/logger.js";
 import { checkWorkflowPayload, runWorkflowPayload } from "./workflowHandlers.js";
 
 const defaultPolicy: Policy = {
@@ -27,6 +28,7 @@ export type ServiceOptions = {
   broker?: ToolBroker;
   authToken?: string;
   maxRequestBytes?: number;
+  logger?: Logger;
 };
 
 const defaultMaxRequestBytes = 1024 * 1024;
@@ -42,16 +44,32 @@ export async function createService(options: ServiceOptions = {}) {
   }
   const authToken = options.authToken ?? randomBytes(32).toString("base64url");
   const maxRequestBytes = options.maxRequestBytes ?? defaultMaxRequestBytes;
+  const logger = options.logger ?? createLoggerFromEnv();
   let url = "";
 
   const server = createServer(async (request, response) => {
+    const requestStartedAt = Date.now();
+    const requestId = randomBytes(8).toString("hex");
+    const pathname = request.url?.split("?")[0] ?? "/";
+    const sendResponse = (status: number, body: unknown) => {
+      logger.info("http.request", {
+        requestId,
+        method: request.method,
+        path: pathname,
+        status,
+        durationMs: Date.now() - requestStartedAt
+      });
+      return send(response, status, body);
+    };
     try {
-      const pathname = request.url?.split("?")[0] ?? "/";
       const rejection = authorizeRequest(request, pathname, authToken);
-      if (rejection) return send(response, rejection.status, { ok: false, code: rejection.code, message: rejection.message });
+      if (rejection) {
+        logger.warn("http.request.rejected", { requestId, path: pathname, status: rejection.status, code: rejection.code });
+        return sendResponse(rejection.status, { ok: false, code: rejection.code, message: rejection.message });
+      }
 
       if (request.method === "GET" && pathname === "/health") {
-        return send(response, 200, { ok: true, version: runtimeVersion, uptimeMs: Date.now() - startedAt, configPath: bundle.configPath });
+        return sendResponse(200, { ok: true, version: runtimeVersion, uptimeMs: Date.now() - startedAt, configPath: bundle.configPath });
       }
 
       if (request.method === "GET" && pathname === "/sources") {
@@ -60,7 +78,7 @@ export async function createService(options: ServiceOptions = {}) {
           sources: bundle.config.sources,
           overrides: bundle.overrides
         });
-        return send(response, 200, {
+        return sendResponse(200, {
           sources: bundle.config.sources,
           diagnostics: registry.diagnostics,
           importedTools: registry.importedTools.map((tool) => tool.name)
@@ -73,7 +91,7 @@ export async function createService(options: ServiceOptions = {}) {
           overrides: bundle.overrides,
           policy: options.policy ?? defaultPolicy
         });
-        return send(response, result.status, result);
+        return sendResponse(result.status, result);
       }
 
       if (request.method === "POST" && pathname === "/workflows/plan") {
@@ -82,7 +100,7 @@ export async function createService(options: ServiceOptions = {}) {
           overrides: bundle.overrides,
           policy: options.policy ?? defaultPolicy
         });
-        return send(response, result.status, result);
+        return sendResponse(result.status, result);
       }
 
       if (request.method === "POST" && pathname === "/workflows/run") {
@@ -96,19 +114,25 @@ export async function createService(options: ServiceOptions = {}) {
           await readJson(request, maxRequestBytes),
           { ...deps, broker }
         );
-        return send(response, result.status, result);
+        return sendResponse(result.status, result);
       }
 
-      return send(response, 404, { ok: false, code: "NOT_FOUND", message: "unknown endpoint" });
+      return sendResponse(404, { ok: false, code: "NOT_FOUND", message: "unknown endpoint" });
     } catch (error) {
       if (error instanceof HttpRequestError) {
-        return send(response, error.status, {
+        logger.warn("http.request.invalid", { requestId, path: pathname, status: error.status, code: error.code });
+        return sendResponse(error.status, {
           ok: false,
           code: error.code,
           message: error.message
         });
       }
-      return send(response, 500, {
+      logger.error("http.request.error", {
+        requestId,
+        path: pathname,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return sendResponse(500, {
         ok: false,
         code: "INTERNAL_ERROR",
         message: error instanceof Error ? error.message : String(error)
@@ -136,9 +160,11 @@ export async function createService(options: ServiceOptions = {}) {
       });
       const address = server.address() as AddressInfo;
       url = `http://${address.address}:${address.port}`;
+      logger.info("service.started", { url, configPath: bundle.configPath });
     },
     async stop() {
       await closeServer(server);
+      logger.info("service.stopped", { url });
     }
   };
 
@@ -156,7 +182,7 @@ export async function createService(options: ServiceOptions = {}) {
     );
 
     if (liveToolToSource.size === 0) return new MockToolBroker();
-    const mcpBroker = new McpToolBroker({ sources: bundle.config.sources, toolToSource: liveToolToSource });
+    const mcpBroker = new McpToolBroker({ sources: bundle.config.sources, toolToSource: liveToolToSource, logger });
     return new CompositeToolBroker(new Set(liveToolToSource.keys()), mcpBroker, new MockToolBroker());
   }
 }

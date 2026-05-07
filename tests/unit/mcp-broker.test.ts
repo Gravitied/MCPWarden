@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { McpToolBroker } from "../../src/adapters/mcpToolBroker.js";
+import { createLogger } from "../../src/diagnostics/logger.js";
 
 describe("MCP tool broker", () => {
-  it("routes approved tool calls to the source client", async () => {
+  it("routes approved tool calls to the source client and logs safe diagnostics", async () => {
+    const lines: string[] = [];
     const broker = new McpToolBroker({
       sources: [
         {
@@ -28,7 +30,8 @@ describe("MCP tool broker", () => {
             async close() {}
           };
         }
-      }
+      },
+      logger: createLogger({ level: "debug", sink: (line) => lines.push(line) })
     });
 
     await expect(broker.callTool("tests.get_failures", { limit: 1 })).resolves.toEqual({
@@ -36,6 +39,11 @@ describe("MCP tool broker", () => {
       args: { limit: 1 },
       ok: true
     });
+    expect(lines.map((line) => JSON.parse(line).event)).toEqual([
+      "mcp.tool.call.start",
+      "mcp.tool.call.complete"
+    ]);
+    expect(JSON.stringify(lines)).not.toContain("limit");
   });
 
   it("preserves the tool failure when client cleanup also fails", async () => {

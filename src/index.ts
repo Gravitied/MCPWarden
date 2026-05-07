@@ -7,6 +7,7 @@ export * from "./adapters/compositeToolBroker.js";
 export * from "./config/config.js";
 export * from "./config/loadConfig.js";
 export * from "./config/paths.js";
+export * from "./diagnostics/logger.js";
 export * from "./cli/doctor.js";
 export * from "./cli/init.js";
 export * from "./cli/output.js";

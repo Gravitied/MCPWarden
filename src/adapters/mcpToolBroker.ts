@@ -1,4 +1,5 @@
 import type { McpSourceConfig } from "../config/config.js";
+import { noopLogger, type Logger } from "../diagnostics/logger.js";
 import type { ToolBroker } from "../runtime/broker.js";
 import { SdkMcpClientFactory, type McpClientFactory } from "./mcpClient.js";
 
@@ -6,21 +7,26 @@ export type McpToolBrokerInput = {
   sources: McpSourceConfig[];
   toolToSource: Map<string, string>;
   clientFactory?: McpClientFactory;
+  logger?: Logger;
 };
 
 export class McpToolBroker implements ToolBroker {
   constructor(private readonly input: McpToolBrokerInput) {}
 
   async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+    const startedAt = Date.now();
+    const logger = this.input.logger ?? noopLogger;
     const sourceId = this.input.toolToSource.get(name);
     if (!sourceId) throw new Error(`unknown MCP tool source for: ${name}`);
     const source = this.input.sources.find((item) => item.id === sourceId);
     if (!source) throw new Error(`unknown MCP source: ${sourceId}`);
 
+    logger.debug("mcp.tool.call.start", { sourceId, tool: name });
     const client = await (this.input.clientFactory ?? new SdkMcpClientFactory()).createClient(source);
     try {
       const result = await client.callTool(name, args);
       await client.close();
+      logger.info("mcp.tool.call.complete", { sourceId, tool: name, durationMs: Date.now() - startedAt });
       return result;
     } catch (error) {
       try {
@@ -28,6 +34,12 @@ export class McpToolBroker implements ToolBroker {
       } catch {
         // Preserve the operation failure; cleanup errors are secondary here.
       }
+      logger.error("mcp.tool.call.error", {
+        sourceId,
+        tool: name,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error)
+      });
       throw error;
     }
   }

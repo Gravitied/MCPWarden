@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createLogger } from "../../src/diagnostics/logger.js";
 import { createService } from "../../src/service/httpService.js";
 
 function authHeaders(service: unknown): Record<string, string> {
@@ -20,6 +21,33 @@ describe("local service", () => {
 
       const sources = await fetch(`${service.url}/sources`, { headers: authHeaders(service) }).then((response) => response.json());
       expect(sources.sources[0].id).toBe("fixture-mcp");
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("logs request diagnostics without secrets", async () => {
+    const lines: string[] = [];
+    const service = await createService({
+      configPath: "examples/mcpw.config.json",
+      port: 0,
+      logger: createLogger({ level: "info", sink: (line) => lines.push(line) })
+    });
+    await service.start();
+    try {
+      await fetch(`${service.url}/health`, { headers: { authorization: "Bearer leaked-token" } });
+
+      const requestLog = lines.map((line) => JSON.parse(line)).find((line) => line.event === "http.request");
+      expect(requestLog).toMatchObject({
+        level: "info",
+        event: "http.request",
+        data: {
+          method: "GET",
+          path: "/health",
+          status: 200
+        }
+      });
+      expect(JSON.stringify(requestLog)).not.toContain("leaked-token");
     } finally {
       await service.stop();
     }
