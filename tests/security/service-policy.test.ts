@@ -7,6 +7,14 @@ function authHeaders(service: unknown): Record<string, string> {
 }
 
 describe("service policy boundaries", () => {
+  it("rejects an explicitly blank auth token", async () => {
+    await expect(createService({ authToken: "  " })).rejects.toThrow("authToken must not be blank");
+  });
+
+  it("rejects non-positive request body limits", async () => {
+    await expect(createService({ maxRequestBytes: 0 })).rejects.toThrow("maxRequestBytes must be a positive integer");
+  });
+
   it("refuses approval-required workflow runs", async () => {
     const service = await createService({ port: 0 });
     await service.start();
@@ -91,6 +99,40 @@ describe("service policy boundaries", () => {
       expect(response.status).toBe(403);
       expect(result.code).toBe("POLICY_DENIED");
       expect(result.message).toContain("unknown tool: tests.get_failures");
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("returns a client error for malformed workflow JSON", async () => {
+    const service = await createService({ configPath: "examples/mcpw.config.json", port: 0 });
+    await service.start();
+    try {
+      const response = await fetch(`${service.url}/workflows/check`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders(service) },
+        body: "{not-json"
+      });
+      const result = await response.json();
+      expect(response.status).toBe(400);
+      expect(result.code).toBe("INVALID_JSON");
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("caps JSON request bodies before buffering unbounded input", async () => {
+    const service = await createService({ configPath: "examples/mcpw.config.json", port: 0, maxRequestBytes: 64 });
+    await service.start();
+    try {
+      const response = await fetch(`${service.url}/workflows/check`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders(service) },
+        body: JSON.stringify({ payload: "x".repeat(128) })
+      });
+      const result = await response.json();
+      expect(response.status).toBe(413);
+      expect(result.code).toBe("PAYLOAD_TOO_LARGE");
     } finally {
       await service.stop();
     }

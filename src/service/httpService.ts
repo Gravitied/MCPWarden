@@ -26,12 +26,22 @@ export type ServiceOptions = {
   policy?: Policy;
   broker?: ToolBroker;
   authToken?: string;
+  maxRequestBytes?: number;
 };
+
+const defaultMaxRequestBytes = 1024 * 1024;
 
 export async function createService(options: ServiceOptions = {}) {
   const bundle = await loadConfigBundle(toConfigInput(options));
   const startedAt = Date.now();
+  if (options.authToken !== undefined && options.authToken.trim().length === 0) {
+    throw new Error("authToken must not be blank");
+  }
+  if (options.maxRequestBytes !== undefined && (!Number.isInteger(options.maxRequestBytes) || options.maxRequestBytes <= 0)) {
+    throw new Error("maxRequestBytes must be a positive integer");
+  }
   const authToken = options.authToken ?? randomBytes(32).toString("base64url");
+  const maxRequestBytes = options.maxRequestBytes ?? defaultMaxRequestBytes;
   let url = "";
 
   const server = createServer(async (request, response) => {
@@ -58,7 +68,7 @@ export async function createService(options: ServiceOptions = {}) {
       }
 
       if (request.method === "POST" && pathname === "/workflows/check") {
-        const result = await checkWorkflowPayload(await readJson(request), {
+        const result = await checkWorkflowPayload(await readJson(request, maxRequestBytes), {
           config: bundle.config,
           overrides: bundle.overrides,
           policy: options.policy ?? defaultPolicy
@@ -67,7 +77,7 @@ export async function createService(options: ServiceOptions = {}) {
       }
 
       if (request.method === "POST" && pathname === "/workflows/plan") {
-        const result = await checkWorkflowPayload(await readJson(request), {
+        const result = await checkWorkflowPayload(await readJson(request, maxRequestBytes), {
           config: bundle.config,
           overrides: bundle.overrides,
           policy: options.policy ?? defaultPolicy
@@ -83,7 +93,7 @@ export async function createService(options: ServiceOptions = {}) {
           policy: options.policy ?? defaultPolicy
         };
         const result = await runWorkflowPayload(
-          await readJson(request),
+          await readJson(request, maxRequestBytes),
           { ...deps, broker }
         );
         return send(response, result.status, result);
@@ -91,6 +101,13 @@ export async function createService(options: ServiceOptions = {}) {
 
       return send(response, 404, { ok: false, code: "NOT_FOUND", message: "unknown endpoint" });
     } catch (error) {
+      if (error instanceof HttpRequestError) {
+        return send(response, error.status, {
+          ok: false,
+          code: error.code,
+          message: error.message
+        });
+      }
       return send(response, 500, {
         ok: false,
         code: "INTERNAL_ERROR",
@@ -109,7 +126,14 @@ export async function createService(options: ServiceOptions = {}) {
     async start() {
       const host = options.host ?? bundle.config.service.host;
       const port = options.port ?? bundle.config.service.port;
-      await new Promise<void>((resolve) => server.listen(port, host, resolve));
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error) => reject(error);
+        server.once("error", onError);
+        server.listen(port, host, () => {
+          server.off("error", onError);
+          resolve();
+        });
+      });
       const address = server.address() as AddressInfo;
       url = `http://${address.address}:${address.port}`;
     },
@@ -195,10 +219,28 @@ function send(response: ServerResponse, status: number, body: unknown): void {
   response.end(JSON.stringify(body));
 }
 
-async function readJson(request: IncomingMessage): Promise<unknown> {
+class HttpRequestError extends Error {
+  constructor(readonly status: number, readonly code: string, message: string) {
+    super(message);
+  }
+}
+
+async function readJson(request: IncomingMessage, maxBytes: number): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  let totalBytes = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.byteLength;
+    if (totalBytes > maxBytes) {
+      throw new HttpRequestError(413, "PAYLOAD_TOO_LARGE", `request body exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(buffer);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new HttpRequestError(400, "INVALID_JSON", "request body must be valid JSON");
+  }
 }
 
 async function closeServer(server: Server): Promise<void> {

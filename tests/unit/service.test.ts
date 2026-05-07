@@ -47,6 +47,18 @@ describe("local service", () => {
     }
   });
 
+  it("rejects startup when the requested port is already in use", async () => {
+    const first = await createService({ port: 0 });
+    await first.start();
+    const port = Number(new URL(first.url).port);
+    const second = await createService({ port });
+    try {
+      await expect(second.start()).rejects.toMatchObject({ code: "EADDRINUSE" });
+    } finally {
+      await first.stop();
+    }
+  });
+
   it("runs approved imported tools through the configured broker", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "mcpw-service-"));
     try {

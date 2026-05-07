@@ -43,9 +43,16 @@ export class McpToolsListAdapter implements ToolSourceAdapter<McpSourceConfig> {
   private async loadLive(config: McpSourceConfig): Promise<unknown> {
     const client = await (this.options.clientFactory ?? new SdkMcpClientFactory()).createClient(config);
     try {
-      return await client.listTools();
-    } finally {
+      const result = await client.listTools();
       await client.close();
+      return result;
+    } catch (error) {
+      try {
+        await client.close();
+      } catch {
+        // Preserve the tools/list failure; cleanup errors are secondary here.
+      }
+      throw error;
     }
   }
 }

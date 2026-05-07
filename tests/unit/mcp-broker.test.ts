@@ -37,4 +37,38 @@ describe("MCP tool broker", () => {
       ok: true
     });
   });
+
+  it("preserves the tool failure when client cleanup also fails", async () => {
+    const broker = new McpToolBroker({
+      sources: [
+        {
+          id: "fixture",
+          kind: "mcp",
+          transport: "stdio",
+          command: "node",
+          args: ["server.js"],
+          defaultPolicy: "deny-unknown",
+          timeoutMs: 5000
+        }
+      ],
+      toolToSource: new Map([["tests.get_failures", "fixture"]]),
+      clientFactory: {
+        async createClient() {
+          return {
+            async listTools() {
+              return { tools: [] };
+            },
+            async callTool() {
+              throw new Error("tool failed");
+            },
+            async close() {
+              throw new Error("close failed");
+            }
+          };
+        }
+      }
+    });
+
+    await expect(broker.callTool("tests.get_failures", { limit: 1 })).rejects.toThrow("tool failed");
+  });
 });

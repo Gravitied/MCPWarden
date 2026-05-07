@@ -19,9 +19,16 @@ export class McpToolBroker implements ToolBroker {
 
     const client = await (this.input.clientFactory ?? new SdkMcpClientFactory()).createClient(source);
     try {
-      return await client.callTool(name, args);
-    } finally {
+      const result = await client.callTool(name, args);
       await client.close();
+      return result;
+    } catch (error) {
+      try {
+        await client.close();
+      } catch {
+        // Preserve the operation failure; cleanup errors are secondary here.
+      }
+      throw error;
     }
   }
 }
