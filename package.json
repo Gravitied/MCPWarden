@@ -54,6 +54,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:security": "vitest run tests/security",
+    "test:effectiveness": "vitest run tests/eval",
     "test:e2e": "vitest run tests/e2e",
     "test:package": "vitest run tests/e2e/package-smoke.test.ts",
     "release:check": "pnpm check && pnpm test && pnpm test:package && pnpm audit --audit-level low",

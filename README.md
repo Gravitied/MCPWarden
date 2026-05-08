@@ -237,6 +237,7 @@ Policy decides which effects are allowed, denied, or approval-required. Policy d
 pnpm install
 pnpm check
 pnpm test
+pnpm test:effectiveness
 pnpm test:security
 pnpm test:e2e
 pnpm test:package

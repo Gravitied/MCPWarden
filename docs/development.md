@@ -18,6 +18,7 @@ pnpm test
 ```powershell
 pnpm check
 pnpm test
+pnpm test:effectiveness
 pnpm test:security
 pnpm test:e2e
 pnpm test:package
