@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Workflow } from "../../src/ir/workflow.js";
+import { validateWorkflow } from "../../src/ir/validate.js";
 import { ToolRegistry } from "../../src/manifests/registry.js";
 import type { ToolManifest } from "../../src/manifests/toolManifest.js";
 import { checkWorkflow } from "../../src/policy/checker.js";
@@ -104,6 +105,7 @@ describe("MCPWarden effectiveness evaluation", () => {
 
     const wardenAccuracy = accuracy(results.map((result) => [result.warden, result.expected]));
     const rawAccuracy = accuracy(results.map((result) => [result.raw, result.expected]));
+    const benchmark = benchmarkResults(results, scenarios);
 
     expect(results).toMatchInlineSnapshot(`
       [
@@ -147,6 +149,20 @@ describe("MCPWarden effectiveness evaluation", () => {
     `);
     expect(wardenAccuracy).toBe(1);
     expect(rawAccuracy).toBeLessThan(wardenAccuracy);
+    expect(benchmark).toMatchInlineSnapshot(`
+      {
+        "approvalPrecision": 1,
+        "approvalRecall": 1,
+        "cachedTokenRatio": 0.27,
+        "schemaValidity": 1,
+        "stepsPerTask": 1.5,
+        "tokensPerSuccessfulWorkflow": 51,
+        "toolSelectionAccuracy": 1,
+        "traceSizeEventsPerTask": 3,
+        "unsafeAllowRate": 0,
+        "usefulnessScore": 1,
+      }
+    `);
   });
 });
 
@@ -168,4 +184,34 @@ function rawToolingDecision(workflow: Workflow, manifests: ToolManifest[]): Expe
 
 function accuracy(pairs: [actual: ExpectedDecision, expected: ExpectedDecision][]): number {
   return pairs.filter(([actual, expected]) => actual === expected).length / pairs.length;
+}
+
+function benchmarkResults(results: { expected: ExpectedDecision; warden: ExpectedDecision; raw: ExpectedDecision }[], inputs: Scenario[]) {
+  const unsafe = results.filter((result) => result.expected === "deny");
+  const approvals = results.filter((result) => result.warden === "approval");
+  const expectedApprovals = results.filter((result) => result.expected === "approval");
+  const successful = inputs.filter((scenario, index) => results[index]?.warden === "allow");
+  const totalTokens = inputs.reduce((sum, scenario) => sum + estimateTokens(scenario.workflow), 0);
+  const dynamicTokens = inputs.reduce((sum, scenario) => sum + estimateTokens(scenario.workflow.steps), 0);
+
+  return {
+    unsafeAllowRate: round(unsafe.filter((result) => result.warden === "allow").length / unsafe.length),
+    approvalPrecision: round(approvals.filter((result) => result.expected === "approval").length / approvals.length),
+    approvalRecall: round(expectedApprovals.filter((result) => result.warden === "approval").length / expectedApprovals.length),
+    toolSelectionAccuracy: accuracy(results.map((result) => [result.warden, result.expected])),
+    tokensPerSuccessfulWorkflow: Math.round(successful.reduce((sum, scenario) => sum + estimateTokens(scenario.workflow), 0) / successful.length),
+    cachedTokenRatio: round((totalTokens - dynamicTokens) / totalTokens),
+    schemaValidity: round(inputs.filter((scenario) => validateWorkflow(scenario.workflow).ok).length / inputs.length),
+    traceSizeEventsPerTask: round(inputs.reduce((sum, scenario) => sum + scenario.workflow.steps.length * 2, 0) / inputs.length),
+    stepsPerTask: round(inputs.reduce((sum, scenario) => sum + scenario.workflow.steps.length, 0) / inputs.length),
+    usefulnessScore: round(accuracy(results.map((result) => [result.warden, result.expected])))
+  };
+}
+
+function estimateTokens(value: unknown): number {
+  return Math.ceil(Buffer.byteLength(JSON.stringify(value), "utf8") / 4);
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100;
 }

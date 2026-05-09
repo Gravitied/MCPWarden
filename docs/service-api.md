@@ -134,6 +134,30 @@ Successful response includes:
 - `ok`
 - `trace`
 - `outputs`
+- `metrics`
+
+Query options:
+
+- `verbosity=compact|normal|debug`: preset output and trace detail.
+- `outputs=full|summary|refs`: controls public step output shape.
+- `trace=full|summary`: controls trace shape.
+- `maxOutputBytes=<bytes>`: stores larger public outputs as artifact refs.
+- `maxTraceEvents=<count>`: caps returned trace events in summary mode.
+- `maxItems=<count>`: caps summary items and object keys.
+- `parallel=true`: runs independent workflow steps concurrently.
+- `stream=events`: returns `application/x-ndjson` with trace event lines followed by a final result line.
+
+Example compact run:
+
+```powershell
+Invoke-RestMethod "$url/workflows/run?verbosity=compact&outputs=refs&trace=summary" -Method Post -Headers $headers -ContentType "application/json" -Body $workflowJson
+```
+
+Example streamed run:
+
+```powershell
+Invoke-WebRequest "$url/workflows/run?stream=events" -Method Post -Headers $headers -ContentType "application/json" -Body $workflowJson
+```
 
 Failure responses include:
 

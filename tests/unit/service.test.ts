@@ -75,6 +75,60 @@ describe("local service", () => {
     }
   });
 
+  it("applies compact verbosity query options to workflow runs", async () => {
+    const service = await createService({
+      configPath: "examples/mcpw.config.json",
+      port: 0,
+      broker: {
+        async callTool() {
+          return { rows: Array.from({ length: 10 }, (_, index) => ({ index, detail: "x".repeat(50) })) };
+        }
+      }
+    });
+    await service.start();
+    try {
+      const response = await fetch(`${service.url}/workflows/run?verbosity=compact&outputs=refs&trace=summary&maxOutputBytes=100`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders(service) },
+        body: JSON.stringify({
+          version: "0.1",
+          workflow: "compact_run",
+          steps: [{ id: "failures", op: "tool.call", tool: "tests.get_failures", args: { limit: 10 } }]
+        })
+      });
+      const result = await response.json();
+      expect(response.status).toBe(200);
+      expect(result.outputs.failures).toMatchObject({ id: expect.stringMatching(/^art_/), type: "WorkflowOutput" });
+      expect(result.trace).toMatchObject({ workflow: "compact_run", eventCount: 2 });
+      expect(result.metrics.tokens.output).toBeGreaterThan(0);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("streams workflow trace events as ndjson", async () => {
+    const service = await createService({ configPath: "examples/mcpw.config.json", port: 0 });
+    await service.start();
+    try {
+      const response = await fetch(`${service.url}/workflows/run?stream=events`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders(service) },
+        body: JSON.stringify({
+          version: "0.1",
+          workflow: "stream_run",
+          steps: [{ id: "failures", op: "tool.call", tool: "tests.get_failures", args: { limit: 1 } }]
+        })
+      });
+      const lines = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
+      expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+      expect(lines.map((line) => line.type)).toEqual(["event", "event", "result"]);
+      expect(lines[0].event.kind).toBe("step.started");
+      expect(lines[2].result.ok).toBe(true);
+    } finally {
+      await service.stop();
+    }
+  });
+
   it("rejects startup when the requested port is already in use", async () => {
     const first = await createService({ port: 0 });
     await first.start();

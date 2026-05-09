@@ -5,24 +5,25 @@ import type { McpwConfig, ManifestOverrides } from "../config/config.js";
 import { validateWorkflow } from "../ir/validate.js";
 import { demoTools } from "../manifests/demoManifests.js";
 import { unresolvedImportedToolDenials } from "../manifests/unresolvedImports.js";
-import { buildUniversalToolRegistry } from "../manifests/universalRegistry.js";
+import { buildCachedUniversalToolRegistry } from "../manifests/universalRegistry.js";
 import { checkWorkflow } from "../policy/checker.js";
 import type { Policy } from "../policy/policy.js";
 import type { ToolBroker } from "../runtime/broker.js";
-import { executeWorkflow } from "../runtime/executor.js";
+import { executeWorkflow, type ExecutionOptions } from "../runtime/executor.js";
 
 export type WorkflowOperationDeps = {
   config: McpwConfig;
   overrides: ManifestOverrides;
   policy: Policy;
   broker?: ToolBroker;
+  execution?: ExecutionOptions;
 };
 
 export async function checkWorkflowPayload(payload: unknown, deps: WorkflowOperationDeps) {
   const validation = validateWorkflow(payload);
   if (!validation.ok) return { ok: false as const, status: 400, code: "WORKFLOW_INVALID", message: validation.errors.join("\n") };
 
-  const registryResult = await buildUniversalToolRegistry({
+  const registryResult = await buildCachedUniversalToolRegistry({
     builtInTools: demoTools,
     sources: deps.config.sources,
     overrides: deps.overrides
@@ -47,7 +48,7 @@ export async function runWorkflowPayload(payload: unknown, deps: WorkflowOperati
   const validation = validateWorkflow(payload);
   if (!validation.ok) return { ok: false as const, status: 400, code: "WORKFLOW_INVALID", message: validation.errors.join("\n") };
 
-  const registryResult = await buildUniversalToolRegistry({
+  const registryResult = await buildCachedUniversalToolRegistry({
     builtInTools: demoTools,
     sources: deps.config.sources,
     overrides: deps.overrides
@@ -66,12 +67,16 @@ export async function runWorkflowPayload(payload: unknown, deps: WorkflowOperati
     };
   }
 
-  const result = await executeWorkflow(validation.workflow, {
-    broker: deps.broker ?? new MockToolBroker(),
-    agents: new MockAgentRegistry(),
-    artifacts: new InMemoryArtifactStore(),
-    stepTrust: check.stepTrust
-  });
+  const result = await executeWorkflow(
+    validation.workflow,
+    {
+      broker: deps.broker ?? new MockToolBroker(),
+      agents: new MockAgentRegistry(),
+      artifacts: new InMemoryArtifactStore(),
+      stepTrust: check.stepTrust
+    },
+    deps.execution
+  );
 
   return { status: result.ok ? 200 : 500, ...result };
 }

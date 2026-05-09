@@ -16,16 +16,22 @@ export class TraceRecorder {
 
   constructor(private readonly runId: string, private readonly workflow: string) {}
 
-  started(stepId: string): void {
-    this.events.push({ kind: "step.started", stepId, at: new Date().toISOString() });
+  started(stepId: string): TraceEvent {
+    const event: TraceEvent = { kind: "step.started", stepId, at: new Date().toISOString() };
+    this.events.push(event);
+    return event;
   }
 
-  completed(stepId: string, data?: unknown): void {
-    this.events.push({ kind: "step.completed", stepId, at: new Date().toISOString(), data: redact(data) });
+  completed(stepId: string, data?: unknown): TraceEvent {
+    const event: TraceEvent = { kind: "step.completed", stepId, at: new Date().toISOString(), data: redact(data) };
+    this.events.push(event);
+    return event;
   }
 
-  failed(stepId: string, data?: unknown): void {
-    this.events.push({ kind: "step.failed", stepId, at: new Date().toISOString(), data: redact(data) });
+  failed(stepId: string, data?: unknown): TraceEvent {
+    const event: TraceEvent = { kind: "step.failed", stepId, at: new Date().toISOString(), data: redact(data) };
+    this.events.push(event);
+    return event;
   }
 
   snapshot(): WorkflowTrace {

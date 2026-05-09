@@ -9,15 +9,17 @@ import { InMemoryArtifactStore } from "./artifacts/artifactStore.js";
 import { runDoctor } from "./cli/doctor.js";
 import { initializeProject } from "./cli/init.js";
 import { parseManifestOverrides, parseMcpwConfig } from "./config/config.js";
+import { workflowJsonSchema } from "./ir/jsonSchema.js";
 import { validateWorkflow } from "./ir/validate.js";
 import { demoTools } from "./manifests/demoManifests.js";
+import { auditToolManifests, compactToolManifests } from "./manifests/quality.js";
 import { unresolvedImportedToolDenials } from "./manifests/unresolvedImports.js";
 import type { UniversalRegistryResult } from "./manifests/universalRegistry.js";
 import { buildUniversalToolRegistry } from "./manifests/universalRegistry.js";
 import { runtimeVersion } from "./packageInfo.js";
 import { checkWorkflow } from "./policy/checker.js";
 import type { Policy } from "./policy/policy.js";
-import { executeWorkflow } from "./runtime/executor.js";
+import { executeWorkflow, type ExecutionOptions } from "./runtime/executor.js";
 import type { ToolBroker } from "./runtime/broker.js";
 import { createService } from "./service/httpService.js";
 
@@ -160,7 +162,14 @@ program
   .argument("<workflow>")
   .option("--dry-run", "run with dry-run policy preview")
   .option("--config <path>")
-  .action(async (path, options: { dryRun?: boolean; config?: string }) => {
+  .option("--verbosity <mode>", "compact, normal, or debug")
+  .option("--outputs <mode>", "full, summary, or refs")
+  .option("--trace <mode>", "full or summary")
+  .option("--max-output-bytes <bytes>")
+  .option("--max-trace-events <count>")
+  .option("--max-items <count>")
+  .option("--parallel", "run independent workflow steps concurrently")
+  .action(async (path, options: { dryRun?: boolean; config?: string; verbosity?: string; outputs?: string; trace?: string; maxOutputBytes?: string; maxTraceEvents?: string; maxItems?: string; parallel?: boolean }) => {
     const workflow = await loadWorkflow(path);
     const registryResult = await buildRegistryForCli(options.config);
     const check = checkWorkflow(workflow, registryResult.registry, policy);
@@ -174,7 +183,7 @@ program
       agents: new MockAgentRegistry(),
       artifacts: new InMemoryArtifactStore(),
       stepTrust: check.stepTrust
-    });
+    }, executionOptionsFromCli(options));
     console.log(JSON.stringify(result, null, 2));
   });
 
@@ -226,4 +235,89 @@ manifestsCommand
     console.log(JSON.stringify(starter, null, 2));
   });
 
+manifestsCommand
+  .command("compact")
+  .requiredOption("--config <path>")
+  .requiredOption("--source <id>")
+  .action(async (options: { config: string; source: string }) => {
+    const { config, overrides } = await loadConfigBundle(options.config);
+    const source = config.sources.find((item) => item.id === options.source);
+    if (!source) throw new Error(`unknown source: ${options.source}`);
+    const result = await buildUniversalToolRegistry({ builtInTools: [], sources: [source], overrides });
+    console.log(JSON.stringify(compactToolManifests(result.manifests), null, 2));
+  });
+
+manifestsCommand
+  .command("audit")
+  .requiredOption("--config <path>")
+  .requiredOption("--source <id>")
+  .action(async (options: { config: string; source: string }) => {
+    const { config, overrides } = await loadConfigBundle(options.config);
+    const source = config.sources.find((item) => item.id === options.source);
+    if (!source) throw new Error(`unknown source: ${options.source}`);
+    const result = await buildUniversalToolRegistry({ builtInTools: [], sources: [source], overrides });
+    console.log(JSON.stringify(auditToolManifests(result.manifests), null, 2));
+  });
+
+const generateCommand = program.command("generate").description("Generate model-facing schemas and examples");
+
+generateCommand
+  .command("workflow")
+  .option("--schema", "print the Workflow IR JSON Schema")
+  .option("--example", "print a minimal workflow example")
+  .action((options: { schema?: boolean; example?: boolean }) => {
+    if (options.example) {
+      console.log(
+        JSON.stringify(
+          {
+            version: "0.1",
+            workflow: "example",
+            steps: [{ id: "failures", op: "tool.call", tool: "tests.get_failures", args: { limit: 1 } }]
+          },
+          null,
+          2
+        )
+      );
+      return;
+    }
+    console.log(JSON.stringify(workflowJsonSchema, null, 2));
+  });
+
 await program.parseAsync();
+
+function executionOptionsFromCli(options: {
+  verbosity?: string;
+  outputs?: string;
+  trace?: string;
+  maxOutputBytes?: string;
+  maxTraceEvents?: string;
+  maxItems?: string;
+  parallel?: boolean;
+}): ExecutionOptions {
+  const execution: ExecutionOptions = {};
+  if (options.verbosity === "compact") {
+    execution.outputMode = "summary";
+    execution.traceMode = "summary";
+    execution.maxItems = 3;
+    execution.maxTraceEvents = 10;
+  } else if (options.verbosity === "debug") {
+    execution.outputMode = "full";
+    execution.traceMode = "full";
+  } else if (options.verbosity && options.verbosity !== "normal") {
+    throw new Error(`unknown verbosity: ${options.verbosity}`);
+  }
+  if (options.outputs === "full" || options.outputs === "summary" || options.outputs === "refs") execution.outputMode = options.outputs;
+  if (options.trace === "full" || options.trace === "summary") execution.traceMode = options.trace;
+  if (options.parallel) execution.parallel = true;
+  assignPositiveInteger(options.maxOutputBytes, (value) => (execution.maxOutputBytes = value));
+  assignPositiveInteger(options.maxTraceEvents, (value) => (execution.maxTraceEvents = value));
+  assignPositiveInteger(options.maxItems, (value) => (execution.maxItems = value));
+  return execution;
+}
+
+function assignPositiveInteger(raw: string | undefined, assign: (value: number) => void): void {
+  if (!raw) return;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`expected positive integer, got: ${raw}`);
+  assign(value);
+}

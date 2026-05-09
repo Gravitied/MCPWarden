@@ -84,6 +84,20 @@ Run a safe workflow:
 mcpw run examples/triage-failing-tests.workflow.json --dry-run
 ```
 
+Use compact output when a caller only needs summaries, metrics, and smaller traces:
+
+```powershell
+mcpw run examples/triage-failing-tests.workflow.json --dry-run --verbosity compact
+```
+
+Generate model-facing schema and tool-selection metadata:
+
+```powershell
+mcpw generate workflow --schema
+mcpw manifests compact --config examples/mcpw.config.json --source fixture-mcp
+mcpw manifests audit --config examples/mcpw.config.json --source fixture-mcp
+```
+
 Start the local service:
 
 ```powershell
@@ -104,6 +118,19 @@ Then call:
 - `POST http://127.0.0.1:8765/workflows/check`: requires bearer token and `Content-Type: application/json`.
 - `POST http://127.0.0.1:8765/workflows/plan`: requires bearer token and `Content-Type: application/json`.
 - `POST http://127.0.0.1:8765/workflows/run`: requires bearer token and `Content-Type: application/json`.
+- `POST http://127.0.0.1:8765/workflows/run?verbosity=compact&outputs=refs&trace=summary`: returns smaller public output.
+- `POST http://127.0.0.1:8765/workflows/run?stream=events`: streams trace events as NDJSON before the final result.
+
+## Performance And Token Controls
+
+MCPWarden keeps large and dynamic data out of model-facing context by defaulting to structured workflow data and artifact handles. The runtime exposes:
+
+- `PromptContextBuilder`: orders cache-stable system, policy, schema, and tool-selection cards before dynamic workflow state.
+- Execution metrics: duration, output bytes, trace event count, estimated input/output tokens, step counts, and step durations.
+- Output modes: `full`, `summary`, and `refs`.
+- Trace modes: `full` and `summary`.
+- Optional parallel execution for independent workflow steps.
+- In-process caching for repeated MCP source discovery and registry construction.
 
 ## Core Concepts
 

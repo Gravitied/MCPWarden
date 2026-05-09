@@ -55,6 +55,23 @@ $env:MCPW_LOG_LEVEL = "debug"
 mcpw serve --config mcpw.config.json
 ```
 
+## Verbosity And Output Budgets
+
+Workflow execution can be shaped for humans, agents, or automated clients:
+
+```powershell
+mcpw run workflow.json --verbosity compact
+mcpw run workflow.json --outputs refs --trace summary --max-output-bytes 4096
+```
+
+Service clients can pass the same controls as query parameters:
+
+```text
+/workflows/run?verbosity=compact&outputs=refs&trace=summary&maxOutputBytes=4096
+```
+
+Use `compact` or `outputs=refs` when tool results are large or likely to be re-fed into a model. Full outputs remain available inside the runtime for later workflow references, while public responses can carry summaries or artifact handles.
+
 ## MCP Source Config
 
 Fixture source:

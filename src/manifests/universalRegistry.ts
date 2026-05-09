@@ -19,6 +19,25 @@ export type UniversalRegistryResult = {
   diagnostics: string[];
 };
 
+const registryCache = new Map<string, Promise<UniversalRegistryResult>>();
+
+export function clearUniversalRegistryCache(): void {
+  registryCache.clear();
+}
+
+export async function buildCachedUniversalToolRegistry(input: UniversalRegistryInput): Promise<UniversalRegistryResult> {
+  const key = registryCacheKey(input);
+  const cached = registryCache.get(key);
+  if (cached) return cached;
+
+  const result = buildUniversalToolRegistry(input).catch((error) => {
+    registryCache.delete(key);
+    throw error;
+  });
+  registryCache.set(key, result);
+  return result;
+}
+
 export async function buildUniversalToolRegistry(input: UniversalRegistryInput): Promise<UniversalRegistryResult> {
   const manifests = [...input.builtInTools];
   const allImportedTools: ImportedTool[] = [];
@@ -47,4 +66,33 @@ export async function buildUniversalToolRegistry(input: UniversalRegistryInput):
   }
 
   return { registry: new ToolRegistry(manifests), manifests, importedTools: allImportedTools, diagnostics };
+}
+
+function registryCacheKey(input: UniversalRegistryInput): string {
+  return stableStringify({
+    builtInTools: input.builtInTools.map((tool) => ({
+      name: tool.name,
+      outputTrust: tool.outputTrust,
+      effectRules: tool.effectRules,
+      requiresApproval: tool.requiresApproval
+    })),
+    sources: input.sources,
+    overrides: input.overrides
+  });
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortForJson(value));
+}
+
+function sortForJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortForJson);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, sortForJson(item)])
+    );
+  }
+  return value;
 }

@@ -6,10 +6,11 @@ import { McpToolBroker } from "../adapters/mcpToolBroker.js";
 import { MockToolBroker } from "../adapters/mockTools.js";
 import { loadConfigBundle } from "../config/loadConfig.js";
 import { demoTools } from "../manifests/demoManifests.js";
-import { buildUniversalToolRegistry } from "../manifests/universalRegistry.js";
+import { buildCachedUniversalToolRegistry } from "../manifests/universalRegistry.js";
 import { runtimeVersion } from "../packageInfo.js";
 import type { Policy } from "../policy/policy.js";
 import type { ToolBroker } from "../runtime/broker.js";
+import type { ExecutionOptions } from "../runtime/executor.js";
 import { createLoggerFromEnv, type Logger } from "../diagnostics/logger.js";
 import { checkWorkflowPayload, runWorkflowPayload } from "./workflowHandlers.js";
 
@@ -50,7 +51,8 @@ export async function createService(options: ServiceOptions = {}) {
   const server = createServer(async (request, response) => {
     const requestStartedAt = Date.now();
     const requestId = randomBytes(8).toString("hex");
-    const pathname = request.url?.split("?")[0] ?? "/";
+    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+    const pathname = requestUrl.pathname;
     const sendResponse = (status: number, body: unknown) => {
       logger.info("http.request", {
         requestId,
@@ -73,7 +75,7 @@ export async function createService(options: ServiceOptions = {}) {
       }
 
       if (request.method === "GET" && pathname === "/sources") {
-        const registry = await buildUniversalToolRegistry({
+        const registry = await buildCachedUniversalToolRegistry({
           builtInTools: demoTools,
           sources: bundle.config.sources,
           overrides: bundle.overrides
@@ -110,9 +112,35 @@ export async function createService(options: ServiceOptions = {}) {
           overrides: bundle.overrides,
           policy: options.policy ?? defaultPolicy
         };
+        if (requestUrl.searchParams.get("stream") === "events") {
+          const payload = await readJson(request, maxRequestBytes);
+          response.writeHead(200, { "content-type": "application/x-ndjson" });
+          const execution = executionOptionsFromQuery(requestUrl.searchParams);
+          const result = await runWorkflowPayload(payload, {
+            ...deps,
+            broker,
+            execution: {
+              ...execution,
+              onEvent(event) {
+                response.write(`${JSON.stringify({ type: "event", event })}\n`);
+                execution.onEvent?.(event);
+              }
+            }
+          });
+          response.write(`${JSON.stringify({ type: "result", result })}\n`);
+          response.end();
+          logger.info("http.request", {
+            requestId,
+            method: request.method,
+            path: pathname,
+            status: 200,
+            durationMs: Date.now() - requestStartedAt
+          });
+          return;
+        }
         const result = await runWorkflowPayload(
           await readJson(request, maxRequestBytes),
-          { ...deps, broker }
+          { ...deps, broker, execution: executionOptionsFromQuery(requestUrl.searchParams) }
         );
         return sendResponse(result.status, result);
       }
@@ -169,7 +197,7 @@ export async function createService(options: ServiceOptions = {}) {
   };
 
   async function defaultServiceBroker() {
-    const registry = await buildUniversalToolRegistry({
+    const registry = await buildCachedUniversalToolRegistry({
       builtInTools: demoTools,
       sources: bundle.config.sources,
       overrides: bundle.overrides
@@ -185,6 +213,38 @@ export async function createService(options: ServiceOptions = {}) {
     const mcpBroker = new McpToolBroker({ sources: bundle.config.sources, toolToSource: liveToolToSource, logger });
     return new CompositeToolBroker(new Set(liveToolToSource.keys()), mcpBroker, new MockToolBroker());
   }
+}
+
+function executionOptionsFromQuery(params: URLSearchParams): ExecutionOptions {
+  const verbosity = params.get("verbosity");
+  const outputMode = params.get("outputs");
+  const traceMode = params.get("trace");
+  const options: ExecutionOptions = {};
+
+  if (verbosity === "compact") {
+    options.outputMode = "summary";
+    options.traceMode = "summary";
+    options.maxItems = 3;
+    options.maxTraceEvents = 10;
+  } else if (verbosity === "debug") {
+    options.outputMode = "full";
+    options.traceMode = "full";
+  }
+
+  if (outputMode === "full" || outputMode === "summary" || outputMode === "refs") options.outputMode = outputMode;
+  if (traceMode === "full" || traceMode === "summary") options.traceMode = traceMode;
+  if (params.get("parallel") === "true") options.parallel = true;
+  setPositiveInteger(params, "maxOutputBytes", (value) => (options.maxOutputBytes = value));
+  setPositiveInteger(params, "maxTraceEvents", (value) => (options.maxTraceEvents = value));
+  setPositiveInteger(params, "maxItems", (value) => (options.maxItems = value));
+  return options;
+}
+
+function setPositiveInteger(params: URLSearchParams, key: string, assign: (value: number) => void): void {
+  const raw = params.get(key);
+  if (!raw) return;
+  const value = Number(raw);
+  if (Number.isInteger(value) && value > 0) assign(value);
 }
 
 function authorizeRequest(

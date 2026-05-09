@@ -34,6 +34,14 @@ describe("mcpw CLI", () => {
     expect(stdout).toContain("\"step.completed\"");
   });
 
+  it("runs workflows with compact verbosity", async () => {
+    const { stdout } = await runCli(["run", "examples/triage-failing-tests.workflow.json", "--dry-run", "--verbosity", "compact"]);
+    const result = JSON.parse(stdout);
+    expect(result.ok).toBe(true);
+    expect(result.trace).toMatchObject({ workflow: "triage_failing_tests", eventCount: expect.any(Number) });
+    expect(JSON.stringify(result.outputs)).toContain("\"kind\"");
+  });
+
   it("refuses a mutating workflow without approval", async () => {
     await expect(runCli(["run", "examples/apply-patch.workflow.json", "--dry-run"])).rejects.toMatchObject({
       stderr: expect.stringContaining("approval required: write.repo")
@@ -62,6 +70,25 @@ describe("mcpw CLI", () => {
       requiresApproval: []
     });
     expect(manifest.sources["fixture-mcp"].tools.unknown).toBeUndefined();
+  });
+
+  it("prints compact manifest selection cards", async () => {
+    const { stdout } = await runCli(["manifests", "compact", "--config", "examples/mcpw.config.json", "--source", "fixture-mcp"]);
+    const cards = JSON.parse(stdout);
+    expect(cards[0]).toMatchObject({ name: "tests.get_failures", outputTrust: "artifact" });
+  });
+
+  it("prints manifest quality audits", async () => {
+    const { stdout } = await runCli(["manifests", "audit", "--config", "examples/mcpw.config.json", "--source", "fixture-mcp"]);
+    const audits = JSON.parse(stdout);
+    expect(audits[0]).toMatchObject({ tool: "tests.get_failures", score: expect.any(Number) });
+  });
+
+  it("prints the workflow JSON schema for model clients", async () => {
+    const { stdout } = await runCli(["generate", "workflow", "--schema"]);
+    const schema = JSON.parse(stdout);
+    expect(schema.title).toBe("MCPWarden Workflow IR");
+    expect(JSON.stringify(schema)).toContain("agent.ask");
   });
 
   it("checks a workflow using an imported MCP tool after overrides", async () => {
