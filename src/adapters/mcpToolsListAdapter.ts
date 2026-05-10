@@ -8,7 +8,7 @@ import type { ImportedTool, ToolSourceAdapter } from "./toolSourceAdapter.js";
 const mcpToolSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional().default(""),
-  inputSchema: z.record(z.unknown()).optional().default({})
+  inputSchema: z.record(z.string(), z.unknown()).optional().default({})
 });
 
 const mcpToolsListSchema = z.object({ tools: z.array(mcpToolSchema) });

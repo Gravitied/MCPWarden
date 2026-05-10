@@ -22,7 +22,7 @@ export const serviceConfigSchema = z.object({
 });
 
 export const mcpwConfigSchema = z.object({
-  service: serviceConfigSchema.default({}),
+  service: serviceConfigSchema.default({ host: "127.0.0.1", port: 8765 }),
   sources: z.array(mcpSourceConfigSchema).default([])
 });
 
@@ -49,9 +49,10 @@ export const manifestOverrideSchema = z.object({
 
 export const manifestOverridesSchema = z.object({
   sources: z.record(
+    z.string(),
     z.object({
       defaults: manifestOverrideSchema.optional(),
-      tools: z.record(manifestOverrideSchema).default({})
+      tools: z.record(z.string(), manifestOverrideSchema).default({})
     })
   ).default({})
 });
