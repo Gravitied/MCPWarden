@@ -11,20 +11,20 @@ export const workflowStepSchema = z.discriminatedUnion("op", [
     ...baseStep,
     op: z.literal("tool.call"),
     tool: z.string().min(1),
-    args: z.record(z.unknown()),
+    args: z.record(z.string(), z.unknown()),
     saveAs: saveAsSchema.optional()
   }),
   z.object({
     ...baseStep,
     op: z.literal("agent.ask"),
     agent: z.string().min(1),
-    input: z.record(z.unknown()),
+    input: z.record(z.string(), z.unknown()),
     saveAs: saveAsSchema.optional()
   }),
   z.object({
     ...baseStep,
     op: z.literal("context.collect"),
-    sources: z.record(z.unknown()),
+    sources: z.record(z.string(), z.unknown()),
     saveAs: saveAsSchema.optional()
   }),
   z.object({
@@ -37,7 +37,7 @@ export const workflowStepSchema = z.discriminatedUnion("op", [
   z.object({
     ...baseStep,
     op: z.literal("assert"),
-    condition: z.union([z.boolean(), z.record(z.unknown())]),
+    condition: z.union([z.boolean(), z.record(z.string(), z.unknown())]),
     message: z.string().optional()
   }),
   z.object({

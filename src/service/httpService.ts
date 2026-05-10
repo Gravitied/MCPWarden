@@ -5,11 +5,17 @@ import { CompositeToolBroker } from "../adapters/compositeToolBroker.js";
 import { McpToolBroker } from "../adapters/mcpToolBroker.js";
 import { MockToolBroker } from "../adapters/mockTools.js";
 import { loadConfigBundle } from "../config/loadConfig.js";
+import { renderDashboardHtml } from "../dashboard/dashboard.js";
 import { demoTools } from "../manifests/demoManifests.js";
-import { buildUniversalToolRegistry } from "../manifests/universalRegistry.js";
+import { buildCachedUniversalToolRegistry } from "../manifests/universalRegistry.js";
 import { runtimeVersion } from "../packageInfo.js";
 import type { Policy } from "../policy/policy.js";
 import type { ToolBroker } from "../runtime/broker.js";
+import type { ExecutionOptions, ExecutionResult } from "../runtime/executor.js";
+import { FileRunStore } from "../runs/runStore.js";
+import type { RunRecord } from "../runs/runStore.js";
+import { scanMcpThreats } from "../security/threatScanner.js";
+import { createLoggerFromEnv, type Logger } from "../diagnostics/logger.js";
 import { checkWorkflowPayload, runWorkflowPayload } from "./workflowHandlers.js";
 
 const defaultPolicy: Policy = {
@@ -26,53 +32,131 @@ export type ServiceOptions = {
   policy?: Policy;
   broker?: ToolBroker;
   authToken?: string;
+  maxRequestBytes?: number;
+  logger?: Logger;
+  runStorePath?: string;
 };
+
+const defaultMaxRequestBytes = 1024 * 1024;
 
 export async function createService(options: ServiceOptions = {}) {
   const bundle = await loadConfigBundle(toConfigInput(options));
   const startedAt = Date.now();
+  if (options.authToken !== undefined && options.authToken.trim().length === 0) {
+    throw new Error("authToken must not be blank");
+  }
+  if (options.maxRequestBytes !== undefined && (!Number.isInteger(options.maxRequestBytes) || options.maxRequestBytes <= 0)) {
+    throw new Error("maxRequestBytes must be a positive integer");
+  }
   const authToken = options.authToken ?? randomBytes(32).toString("base64url");
+  const maxRequestBytes = options.maxRequestBytes ?? defaultMaxRequestBytes;
+  const logger = options.logger ?? createLoggerFromEnv();
+  const runStore = options.runStorePath ? new FileRunStore(options.runStorePath) : undefined;
   let url = "";
 
   const server = createServer(async (request, response) => {
+    const requestStartedAt = Date.now();
+    const requestId = randomBytes(8).toString("hex");
+    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+    const pathname = requestUrl.pathname;
+    const sendResponse = (status: number, body: unknown) => {
+      logger.info("http.request", {
+        requestId,
+        method: request.method,
+        path: pathname,
+        status,
+        durationMs: Date.now() - requestStartedAt
+      });
+      return send(response, status, body);
+    };
     try {
-      const pathname = request.url?.split("?")[0] ?? "/";
       const rejection = authorizeRequest(request, pathname, authToken);
-      if (rejection) return send(response, rejection.status, { ok: false, code: rejection.code, message: rejection.message });
+      if (rejection) {
+        logger.warn("http.request.rejected", { requestId, path: pathname, status: rejection.status, code: rejection.code });
+        return sendResponse(rejection.status, { ok: false, code: rejection.code, message: rejection.message });
+      }
 
       if (request.method === "GET" && pathname === "/health") {
-        return send(response, 200, { ok: true, version: runtimeVersion, uptimeMs: Date.now() - startedAt, configPath: bundle.configPath });
+        return sendResponse(200, { ok: true, version: runtimeVersion, uptimeMs: Date.now() - startedAt, configPath: bundle.configPath });
       }
 
       if (request.method === "GET" && pathname === "/sources") {
-        const registry = await buildUniversalToolRegistry({
+        const registry = await buildCachedUniversalToolRegistry({
           builtInTools: demoTools,
           sources: bundle.config.sources,
           overrides: bundle.overrides
         });
-        return send(response, 200, {
+        return sendResponse(200, {
           sources: bundle.config.sources,
           diagnostics: registry.diagnostics,
           importedTools: registry.importedTools.map((tool) => tool.name)
         });
       }
 
+      if (request.method === "GET" && pathname === "/security/scan") {
+        const registry = await buildCachedUniversalToolRegistry({
+          builtInTools: demoTools,
+          sources: bundle.config.sources,
+          overrides: bundle.overrides
+        });
+        return sendResponse(200, scanMcpThreats({ importedTools: registry.importedTools, manifests: registry.manifests }));
+      }
+
+      if (request.method === "GET" && pathname === "/runs") {
+        return sendResponse(200, runStore ? await runStore.list() : []);
+      }
+
+      if (request.method === "GET" && pathname.startsWith("/runs/")) {
+        if (!runStore) return sendResponse(404, { ok: false, code: "NOT_FOUND", message: "run store is not configured" });
+        return sendResponse(200, await runStore.get(decodeURIComponent(pathname.slice("/runs/".length))));
+      }
+
+      if (request.method === "GET" && pathname === "/dashboard") {
+        const registry = await buildCachedUniversalToolRegistry({
+          builtInTools: demoTools,
+          sources: bundle.config.sources,
+          overrides: bundle.overrides
+        });
+        const scan = scanMcpThreats({ importedTools: registry.importedTools, manifests: registry.manifests });
+        logger.info("http.request", {
+          requestId,
+          method: request.method,
+          path: pathname,
+          status: 200,
+          durationMs: Date.now() - requestStartedAt
+        });
+        return sendHtml(
+          response,
+          200,
+          renderDashboardHtml({
+            version: runtimeVersion,
+            sources: bundle.config.sources.map((source) => ({
+              id: source.id,
+              kind: source.kind,
+              tools: registry.importedTools.filter((tool) => tool.sourceId === source.id).length
+            })),
+            runs: runStore ? (await runStore.list()).map((run) => ({ runId: run.runId, workflow: run.workflow, ok: run.ok })) : [],
+            findings: scan.findings.map((finding) => ({ severity: finding.severity, title: `${finding.kind}: ${finding.tool ?? finding.sourceId ?? "source"}` }))
+          })
+        );
+      }
+
       if (request.method === "POST" && pathname === "/workflows/check") {
-        const result = await checkWorkflowPayload(await readJson(request), {
+        const result = await checkWorkflowPayload(await readJson(request, maxRequestBytes), {
           config: bundle.config,
           overrides: bundle.overrides,
           policy: options.policy ?? defaultPolicy
         });
-        return send(response, result.status, result);
+        return sendResponse(result.status, result);
       }
 
       if (request.method === "POST" && pathname === "/workflows/plan") {
-        const result = await checkWorkflowPayload(await readJson(request), {
+        const result = await checkWorkflowPayload(await readJson(request, maxRequestBytes), {
           config: bundle.config,
           overrides: bundle.overrides,
           policy: options.policy ?? defaultPolicy
         });
-        return send(response, result.status, result);
+        return sendResponse(result.status, result);
       }
 
       if (request.method === "POST" && pathname === "/workflows/run") {
@@ -82,16 +166,56 @@ export async function createService(options: ServiceOptions = {}) {
           overrides: bundle.overrides,
           policy: options.policy ?? defaultPolicy
         };
+        if (requestUrl.searchParams.get("stream") === "events") {
+          const payload = await readJson(request, maxRequestBytes);
+          response.writeHead(200, { "content-type": "application/x-ndjson" });
+          const execution = executionOptionsFromQuery(requestUrl.searchParams);
+          const result = await runWorkflowPayload(payload, {
+            ...deps,
+            broker,
+            execution: {
+              ...execution,
+              onEvent(event) {
+                response.write(`${JSON.stringify({ type: "event", event })}\n`);
+                execution.onEvent?.(event);
+              }
+            }
+          });
+          response.write(`${JSON.stringify({ type: "result", result })}\n`);
+          response.end();
+          logger.info("http.request", {
+            requestId,
+            method: request.method,
+            path: pathname,
+            status: 200,
+            durationMs: Date.now() - requestStartedAt
+          });
+          return;
+        }
         const result = await runWorkflowPayload(
-          await readJson(request),
-          { ...deps, broker }
+          await readJson(request, maxRequestBytes),
+          { ...deps, broker, execution: executionOptionsFromQuery(requestUrl.searchParams) }
         );
-        return send(response, result.status, result);
+        if (runStore && "trace" in result) await runStore.append(runRecordFromResult(result));
+        return sendResponse(result.status, result);
       }
 
-      return send(response, 404, { ok: false, code: "NOT_FOUND", message: "unknown endpoint" });
+      return sendResponse(404, { ok: false, code: "NOT_FOUND", message: "unknown endpoint" });
     } catch (error) {
-      return send(response, 500, {
+      if (error instanceof HttpRequestError) {
+        logger.warn("http.request.invalid", { requestId, path: pathname, status: error.status, code: error.code });
+        return sendResponse(error.status, {
+          ok: false,
+          code: error.code,
+          message: error.message
+        });
+      }
+      logger.error("http.request.error", {
+        requestId,
+        path: pathname,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return sendResponse(500, {
         ok: false,
         code: "INTERNAL_ERROR",
         message: error instanceof Error ? error.message : String(error)
@@ -109,17 +233,26 @@ export async function createService(options: ServiceOptions = {}) {
     async start() {
       const host = options.host ?? bundle.config.service.host;
       const port = options.port ?? bundle.config.service.port;
-      await new Promise<void>((resolve) => server.listen(port, host, resolve));
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error) => reject(error);
+        server.once("error", onError);
+        server.listen(port, host, () => {
+          server.off("error", onError);
+          resolve();
+        });
+      });
       const address = server.address() as AddressInfo;
       url = `http://${address.address}:${address.port}`;
+      logger.info("service.started", { url, configPath: bundle.configPath });
     },
     async stop() {
       await closeServer(server);
+      logger.info("service.stopped", { url });
     }
   };
 
   async function defaultServiceBroker() {
-    const registry = await buildUniversalToolRegistry({
+    const registry = await buildCachedUniversalToolRegistry({
       builtInTools: demoTools,
       sources: bundle.config.sources,
       overrides: bundle.overrides
@@ -132,9 +265,41 @@ export async function createService(options: ServiceOptions = {}) {
     );
 
     if (liveToolToSource.size === 0) return new MockToolBroker();
-    const mcpBroker = new McpToolBroker({ sources: bundle.config.sources, toolToSource: liveToolToSource });
+    const mcpBroker = new McpToolBroker({ sources: bundle.config.sources, toolToSource: liveToolToSource, logger });
     return new CompositeToolBroker(new Set(liveToolToSource.keys()), mcpBroker, new MockToolBroker());
   }
+}
+
+function executionOptionsFromQuery(params: URLSearchParams): ExecutionOptions {
+  const verbosity = params.get("verbosity");
+  const outputMode = params.get("outputs");
+  const traceMode = params.get("trace");
+  const options: ExecutionOptions = {};
+
+  if (verbosity === "compact") {
+    options.outputMode = "summary";
+    options.traceMode = "summary";
+    options.maxItems = 3;
+    options.maxTraceEvents = 10;
+  } else if (verbosity === "debug") {
+    options.outputMode = "full";
+    options.traceMode = "full";
+  }
+
+  if (outputMode === "full" || outputMode === "summary" || outputMode === "refs") options.outputMode = outputMode;
+  if (traceMode === "full" || traceMode === "summary") options.traceMode = traceMode;
+  if (params.get("parallel") === "true") options.parallel = true;
+  setPositiveInteger(params, "maxOutputBytes", (value) => (options.maxOutputBytes = value));
+  setPositiveInteger(params, "maxTraceEvents", (value) => (options.maxTraceEvents = value));
+  setPositiveInteger(params, "maxItems", (value) => (options.maxItems = value));
+  return options;
+}
+
+function setPositiveInteger(params: URLSearchParams, key: string, assign: (value: number) => void): void {
+  const raw = params.get(key);
+  if (!raw) return;
+  const value = Number(raw);
+  if (Number.isInteger(value) && value > 0) assign(value);
 }
 
 function authorizeRequest(
@@ -195,10 +360,47 @@ function send(response: ServerResponse, status: number, body: unknown): void {
   response.end(JSON.stringify(body));
 }
 
-async function readJson(request: IncomingMessage): Promise<unknown> {
+function sendHtml(response: ServerResponse, status: number, body: string): void {
+  response.writeHead(status, { "content-type": "text/html; charset=utf-8" });
+  response.end(body);
+}
+
+function runRecordFromResult(result: { status: number } & ExecutionResult): RunRecord {
+  const record: RunRecord = {
+    runId: result.trace.runId,
+    workflow: result.trace.workflow,
+    ok: result.ok,
+    createdAt: new Date().toISOString(),
+    metrics: result.metrics,
+    trace: result.trace,
+    outputs: result.outputs
+  };
+  if (!result.ok) record.error = result.error;
+  return record;
+}
+
+class HttpRequestError extends Error {
+  constructor(readonly status: number, readonly code: string, message: string) {
+    super(message);
+  }
+}
+
+async function readJson(request: IncomingMessage, maxBytes: number): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  let totalBytes = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.byteLength;
+    if (totalBytes > maxBytes) {
+      throw new HttpRequestError(413, "PAYLOAD_TOO_LARGE", `request body exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(buffer);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new HttpRequestError(400, "INVALID_JSON", "request body must be valid JSON");
+  }
 }
 
 async function closeServer(server: Server): Promise<void> {

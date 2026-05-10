@@ -2,12 +2,18 @@
 
 MCPWarden executes strict JSON workflows. The IR is the stable interface. A textual DSL may be added later, but it must compile to this IR.
 
+Generate the model-facing JSON Schema with:
+
+```powershell
+mcpw generate workflow --schema
+```
+
 ## Operations
 
 - `tool.call`: invoke a manifest-declared tool through the broker.
 - `agent.ask`: call a named agent through the agent registry.
-- `context.collect`: collect bounded context references.
-- `artifact.summarize`: summarize an artifact reference.
+- `context.collect`: collect bounded context references into a workflow value or artifact.
+- `artifact.summarize`: summarize an artifact reference or inline value with `maxItems`.
 - `assert`: enforce a deterministic condition.
 - `approval.require`: request explicit approval but never reduce inferred effects.
 - `return`: produce the final workflow result.

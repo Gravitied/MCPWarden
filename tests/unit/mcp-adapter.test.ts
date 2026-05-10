@@ -65,6 +65,38 @@ describe("MCP tools/list adapter", () => {
     expect(tools.map((tool) => tool.name)).toEqual(["tests.get_failures", "repo.apply_patch"]);
   });
 
+  it("preserves the tools/list failure when client cleanup also fails", async () => {
+    const adapter = new McpToolsListAdapter({
+      clientFactory: {
+        async createClient() {
+          return {
+            async listTools() {
+              throw new Error("tools/list failed");
+            },
+            async callTool() {
+              return { content: [] };
+            },
+            async close() {
+              throw new Error("close failed");
+            }
+          };
+        }
+      }
+    });
+
+    await expect(
+      adapter.loadTools({
+        id: "stdio-mcp",
+        kind: "mcp",
+        transport: "stdio",
+        command: "node",
+        args: ["server.js"],
+        defaultPolicy: "deny-unknown",
+        timeoutMs: 5000
+      })
+    ).rejects.toThrow("tools/list failed");
+  });
+
   it("loads tools from a real stdio MCP server process", async () => {
     const adapter = new McpToolsListAdapter();
     const tools = await adapter.loadTools({

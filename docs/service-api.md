@@ -134,6 +134,48 @@ Successful response includes:
 - `ok`
 - `trace`
 - `outputs`
+- `metrics`
+
+Query options:
+
+- `verbosity=compact|normal|debug`: preset output and trace detail.
+- `outputs=full|summary|refs`: controls public step output shape.
+- `trace=full|summary`: controls trace shape.
+- `maxOutputBytes=<bytes>`: stores larger public outputs as artifact refs.
+- `maxTraceEvents=<count>`: caps returned trace events in summary mode.
+- `maxItems=<count>`: caps summary items and object keys.
+- `parallel=true`: runs independent workflow steps concurrently.
+- `stream=events`: returns `application/x-ndjson` with trace event lines followed by a final result line.
+
+Example compact run:
+
+```powershell
+Invoke-RestMethod "$url/workflows/run?verbosity=compact&outputs=refs&trace=summary" -Method Post -Headers $headers -ContentType "application/json" -Body $workflowJson
+```
+
+Example streamed run:
+
+```powershell
+Invoke-WebRequest "$url/workflows/run?stream=events" -Method Post -Headers $headers -ContentType "application/json" -Body $workflowJson
+```
+
+## GET /security/scan
+
+Runs the MCP threat scanner against configured sources and executable manifests.
+
+The report includes total tools, finding counts, overall risk, and findings for tool poisoning, schema poisoning, shadowing, Unicode obfuscation, dangerous effects, and missing metadata.
+
+## GET /runs
+
+Lists persisted run records when `runStorePath` is configured in the embedding service options. Returns an empty array when no run store is configured.
+
+## GET /runs/:id
+
+Returns one persisted run record when `runStorePath` is configured.
+
+## GET /dashboard
+
+Returns a dependency-light local HTML dashboard with source, run, and security finding summaries.
 
 Failure responses include:
 
@@ -149,8 +191,14 @@ Common error codes:
 - `UNAUTHORIZED`
 - `FORBIDDEN_ORIGIN`
 - `UNSUPPORTED_MEDIA_TYPE`
+- `INVALID_JSON`
+- `PAYLOAD_TOO_LARGE`
 - `NOT_FOUND`
 - `INTERNAL_ERROR`
+
+## Debug Logging
+
+Set `MCPW_LOG_LEVEL=debug|info|warn|error` or `MCPW_DEBUG=1` before starting `mcpw serve` to emit structured JSON-line diagnostics to stderr. Logs include service lifecycle events, request ids, methods, paths, statuses, durations, and MCP tool/source operation status. MCPWarden does not log request bodies, authorization headers, bearer tokens, or tool arguments, and sensitive-looking values are redacted.
 
 ## Security Notes
 

@@ -84,6 +84,33 @@ Run a safe workflow:
 mcpw run examples/triage-failing-tests.workflow.json --dry-run
 ```
 
+Use compact output when a caller only needs summaries, metrics, and smaller traces:
+
+```powershell
+mcpw run examples/triage-failing-tests.workflow.json --dry-run --verbosity compact
+```
+
+Generate model-facing schema and tool-selection metadata:
+
+```powershell
+mcpw generate workflow --schema
+mcpw manifests compact --config examples/mcpw.config.json --source fixture-mcp
+mcpw manifests audit --config examples/mcpw.config.json --source fixture-mcp
+```
+
+Use the hardening platform commands:
+
+```powershell
+mcpw policy init --profile enterprise-strict
+mcpw security scan --config examples/mcpw.config.json
+mcpw approve issue examples/apply-patch.workflow.json --secret <secret> --expires 5m
+mcpw sources lock --config examples/mcpw.config.json --out mcpw.lock.json
+mcpw trace graph examples/triage-failing-tests.workflow.json --format mermaid
+mcpw conformance run
+mcpw attacks run
+mcpw dashboard --print
+```
+
 Start the local service:
 
 ```powershell
@@ -104,6 +131,36 @@ Then call:
 - `POST http://127.0.0.1:8765/workflows/check`: requires bearer token and `Content-Type: application/json`.
 - `POST http://127.0.0.1:8765/workflows/plan`: requires bearer token and `Content-Type: application/json`.
 - `POST http://127.0.0.1:8765/workflows/run`: requires bearer token and `Content-Type: application/json`.
+- `POST http://127.0.0.1:8765/workflows/run?verbosity=compact&outputs=refs&trace=summary`: returns smaller public output.
+- `POST http://127.0.0.1:8765/workflows/run?stream=events`: streams trace events as NDJSON before the final result.
+- `GET http://127.0.0.1:8765/security/scan`: returns MCP threat scanner findings.
+- `GET http://127.0.0.1:8765/runs`: lists persisted run records when `runStorePath` is configured.
+- `GET http://127.0.0.1:8765/dashboard`: renders the local MCPWarden dashboard.
+
+## Performance And Token Controls
+
+MCPWarden keeps large and dynamic data out of model-facing context by defaulting to structured workflow data and artifact handles. The runtime exposes:
+
+- `PromptContextBuilder`: orders cache-stable system, policy, schema, and tool-selection cards before dynamic workflow state.
+- Execution metrics: duration, output bytes, trace event count, estimated input/output tokens, step counts, and step durations.
+- Output modes: `full`, `summary`, and `refs`.
+- Trace modes: `full` and `summary`.
+- Optional parallel execution for independent workflow steps.
+- In-process caching for repeated MCP source discovery and registry construction.
+
+## Security And Release Hardening
+
+MCPWarden includes additional release-facing controls:
+
+- Policy packs for common deployment profiles.
+- MCP threat scanning for tool poisoning, schema poisoning, shadowed tools, Unicode obfuscation, dangerous effects, and missing metadata.
+- Signed approval tokens with nonce, expiry, workflow hash, policy hash, and replay detection helpers.
+- Source lockfiles that pin imported tool schema and description hashes.
+- HTTP JSON-RPC MCP transport support in addition to fixture and stdio sources.
+- Persistent JSONL run stores for local audit history.
+- Provenance graph rendering for workflow dataflow.
+- Conformance and attack benchmark suites.
+- A dependency-light local HTML dashboard.
 
 ## Core Concepts
 
@@ -237,6 +294,7 @@ Policy decides which effects are allowed, denied, or approval-required. Policy d
 pnpm install
 pnpm check
 pnpm test
+pnpm test:effectiveness
 pnpm test:security
 pnpm test:e2e
 pnpm test:package

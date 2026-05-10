@@ -1,25 +1,35 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import { CompositeToolBroker } from "./adapters/compositeToolBroker.js";
 import { McpToolBroker } from "./adapters/mcpToolBroker.js";
 import { MockAgentRegistry } from "./adapters/mockAgents.js";
 import { MockToolBroker } from "./adapters/mockTools.js";
+import { issueApprovalToken, verifyApprovalToken } from "./approvals/tokens.js";
 import { InMemoryArtifactStore } from "./artifacts/artifactStore.js";
 import { runDoctor } from "./cli/doctor.js";
 import { initializeProject } from "./cli/init.js";
 import { parseManifestOverrides, parseMcpwConfig } from "./config/config.js";
+import { runAttackBenchmarks, runConformanceSuite } from "./conformance/suite.js";
+import { renderDashboardHtml } from "./dashboard/dashboard.js";
+import { workflowJsonSchema } from "./ir/jsonSchema.js";
 import { validateWorkflow } from "./ir/validate.js";
 import { demoTools } from "./manifests/demoManifests.js";
+import { auditToolManifests, compactToolManifests } from "./manifests/quality.js";
 import { unresolvedImportedToolDenials } from "./manifests/unresolvedImports.js";
 import type { UniversalRegistryResult } from "./manifests/universalRegistry.js";
 import { buildUniversalToolRegistry } from "./manifests/universalRegistry.js";
 import { runtimeVersion } from "./packageInfo.js";
 import { checkWorkflow } from "./policy/checker.js";
+import { policyPackNames, resolvePolicyPack } from "./policy/packs.js";
 import type { Policy } from "./policy/policy.js";
-import { executeWorkflow } from "./runtime/executor.js";
+import { buildProvenanceGraph, renderProvenanceMermaid } from "./provenance/graph.js";
+import { FileRunStore } from "./runs/runStore.js";
+import { executeWorkflow, type ExecutionOptions } from "./runtime/executor.js";
 import type { ToolBroker } from "./runtime/broker.js";
+import { scanMcpThreats } from "./security/threatScanner.js";
 import { createService } from "./service/httpService.js";
+import { buildSourceLockfile, hash } from "./sources/lockfile.js";
 
 const policy: Policy = {
   allow: ["read.tests", "read.repo", "agent.debugger", "agent.coder", "run.tests"],
@@ -160,7 +170,14 @@ program
   .argument("<workflow>")
   .option("--dry-run", "run with dry-run policy preview")
   .option("--config <path>")
-  .action(async (path, options: { dryRun?: boolean; config?: string }) => {
+  .option("--verbosity <mode>", "compact, normal, or debug")
+  .option("--outputs <mode>", "full, summary, or refs")
+  .option("--trace <mode>", "full or summary")
+  .option("--max-output-bytes <bytes>")
+  .option("--max-trace-events <count>")
+  .option("--max-items <count>")
+  .option("--parallel", "run independent workflow steps concurrently")
+  .action(async (path, options: { dryRun?: boolean; config?: string; verbosity?: string; outputs?: string; trace?: string; maxOutputBytes?: string; maxTraceEvents?: string; maxItems?: string; parallel?: boolean }) => {
     const workflow = await loadWorkflow(path);
     const registryResult = await buildRegistryForCli(options.config);
     const check = checkWorkflow(workflow, registryResult.registry, policy);
@@ -174,7 +191,7 @@ program
       agents: new MockAgentRegistry(),
       artifacts: new InMemoryArtifactStore(),
       stepTrust: check.stepTrust
-    });
+    }, executionOptionsFromCli(options));
     console.log(JSON.stringify(result, null, 2));
   });
 
@@ -202,6 +219,19 @@ sourcesCommand
     if (result.diagnostics.length === 0) console.log("- no diagnostics");
   });
 
+sourcesCommand
+  .command("lock")
+  .requiredOption("--config <path>")
+  .option("--out <path>")
+  .action(async (options: { config: string; out?: string }) => {
+    const { config } = await loadConfigBundle(options.config);
+    const registry = await buildUniversalToolRegistry({ builtInTools: [], sources: config.sources, overrides: { sources: {} } });
+    const lockfile = buildSourceLockfile({ importedTools: registry.importedTools });
+    const json = JSON.stringify(lockfile, null, 2);
+    if (options.out) await writeFile(options.out, `${json}\n`, "utf8");
+    console.log(json);
+  });
+
 const manifestsCommand = program.command("manifests").description("Export starter manifests for configured external sources");
 
 manifestsCommand
@@ -226,4 +256,213 @@ manifestsCommand
     console.log(JSON.stringify(starter, null, 2));
   });
 
+manifestsCommand
+  .command("compact")
+  .requiredOption("--config <path>")
+  .requiredOption("--source <id>")
+  .action(async (options: { config: string; source: string }) => {
+    const { config, overrides } = await loadConfigBundle(options.config);
+    const source = config.sources.find((item) => item.id === options.source);
+    if (!source) throw new Error(`unknown source: ${options.source}`);
+    const result = await buildUniversalToolRegistry({ builtInTools: [], sources: [source], overrides });
+    console.log(JSON.stringify(compactToolManifests(result.manifests), null, 2));
+  });
+
+manifestsCommand
+  .command("audit")
+  .requiredOption("--config <path>")
+  .requiredOption("--source <id>")
+  .action(async (options: { config: string; source: string }) => {
+    const { config, overrides } = await loadConfigBundle(options.config);
+    const source = config.sources.find((item) => item.id === options.source);
+    if (!source) throw new Error(`unknown source: ${options.source}`);
+    const result = await buildUniversalToolRegistry({ builtInTools: [], sources: [source], overrides });
+    console.log(JSON.stringify(auditToolManifests(result.manifests), null, 2));
+  });
+
+const generateCommand = program.command("generate").description("Generate model-facing schemas and examples");
+
+generateCommand
+  .command("workflow")
+  .option("--schema", "print the Workflow IR JSON Schema")
+  .option("--example", "print a minimal workflow example")
+  .action((options: { schema?: boolean; example?: boolean }) => {
+    if (options.example) {
+      console.log(
+        JSON.stringify(
+          {
+            version: "0.1",
+            workflow: "example",
+            steps: [{ id: "failures", op: "tool.call", tool: "tests.get_failures", args: { limit: 1 } }]
+          },
+          null,
+          2
+        )
+      );
+      return;
+    }
+    console.log(JSON.stringify(workflowJsonSchema, null, 2));
+  });
+
+const policyCommand = program.command("policy").description("Work with built-in policy packs");
+
+policyCommand
+  .command("init")
+  .option("--profile <name>", "policy profile name")
+  .option("--list", "list policy profiles")
+  .action((options: { profile?: string; list?: boolean }) => {
+    if (options.list) {
+      console.log(JSON.stringify(policyPackNames(), null, 2));
+      return;
+    }
+    const pack = resolvePolicyPack(options.profile ?? "local-dev");
+    console.log(JSON.stringify(pack.policy, null, 2));
+  });
+
+const securityCommand = program.command("security").description("Scan MCP sources and manifests for safety risks");
+
+securityCommand
+  .command("scan")
+  .requiredOption("--config <path>")
+  .action(async (options: { config: string }) => {
+    const { config, overrides } = await loadConfigBundle(options.config);
+    const registry = await buildUniversalToolRegistry({ builtInTools: [], sources: config.sources, overrides });
+    console.log(JSON.stringify(scanMcpThreats({ importedTools: registry.importedTools, manifests: registry.manifests }), null, 2));
+  });
+
+const approveCommand = program.command("approve").description("Issue and verify replay-resistant approval tokens");
+
+approveCommand
+  .command("issue")
+  .argument("<workflow>")
+  .requiredOption("--secret <secret>")
+  .option("--expires <duration>", "duration such as 5m, 1h, or 300s", "5m")
+  .action(async (workflowPath: string, options: { secret: string; expires: string }) => {
+    const raw = JSON.parse(await readFile(workflowPath, "utf8"));
+    const token = issueApprovalToken({
+      secret: options.secret,
+      workflowHash: hash(raw),
+      policyHash: hash(policy),
+      effects: [...policy.requireApproval],
+      expiresInMs: parseDurationMs(options.expires)
+    });
+    console.log(JSON.stringify({ token }, null, 2));
+  });
+
+approveCommand
+  .command("verify")
+  .argument("<token>")
+  .requiredOption("--secret <secret>")
+  .action((token: string, options: { secret: string }) => {
+    console.log(JSON.stringify(verifyApprovalToken(token, { secret: options.secret }), null, 2));
+  });
+
+const traceCommand = program.command("trace").description("Inspect workflow traces and provenance");
+
+traceCommand
+  .command("graph")
+  .argument("<workflow>")
+  .option("--format <format>", "json or mermaid", "json")
+  .action(async (workflowPath: string, options: { format: string }) => {
+    const workflow = await loadWorkflow(workflowPath);
+    const graph = buildProvenanceGraph(workflow);
+    console.log(options.format === "mermaid" ? renderProvenanceMermaid(graph) : JSON.stringify(graph, null, 2));
+  });
+
+const runsCommand = program.command("runs").description("Inspect persistent workflow run records");
+
+runsCommand
+  .command("list")
+  .requiredOption("--store <path>")
+  .action(async (options: { store: string }) => {
+    console.log(JSON.stringify(await new FileRunStore(options.store).list(), null, 2));
+  });
+
+runsCommand
+  .command("show")
+  .argument("<runId>")
+  .requiredOption("--store <path>")
+  .action(async (runId: string, options: { store: string }) => {
+    console.log(JSON.stringify(await new FileRunStore(options.store).get(runId), null, 2));
+  });
+
+program
+  .command("conformance")
+  .command("run")
+  .action(() => {
+    console.log(JSON.stringify(runConformanceSuite(), null, 2));
+  });
+
+program
+  .command("attacks")
+  .command("run")
+  .action(() => {
+    console.log(JSON.stringify(runAttackBenchmarks(), null, 2));
+  });
+
+program
+  .command("dashboard")
+  .option("--print", "print static dashboard HTML")
+  .action((options: { print?: boolean }) => {
+    const html = renderDashboardHtml({
+      version: runtimeVersion,
+      sources: [],
+      runs: [],
+      findings: []
+    });
+    if (options.print) {
+      console.log(html);
+      return;
+    }
+    console.log(html);
+  });
+
 await program.parseAsync();
+
+function executionOptionsFromCli(options: {
+  verbosity?: string;
+  outputs?: string;
+  trace?: string;
+  maxOutputBytes?: string;
+  maxTraceEvents?: string;
+  maxItems?: string;
+  parallel?: boolean;
+}): ExecutionOptions {
+  const execution: ExecutionOptions = {};
+  if (options.verbosity === "compact") {
+    execution.outputMode = "summary";
+    execution.traceMode = "summary";
+    execution.maxItems = 3;
+    execution.maxTraceEvents = 10;
+  } else if (options.verbosity === "debug") {
+    execution.outputMode = "full";
+    execution.traceMode = "full";
+  } else if (options.verbosity && options.verbosity !== "normal") {
+    throw new Error(`unknown verbosity: ${options.verbosity}`);
+  }
+  if (options.outputs === "full" || options.outputs === "summary" || options.outputs === "refs") execution.outputMode = options.outputs;
+  if (options.trace === "full" || options.trace === "summary") execution.traceMode = options.trace;
+  if (options.parallel) execution.parallel = true;
+  assignPositiveInteger(options.maxOutputBytes, (value) => (execution.maxOutputBytes = value));
+  assignPositiveInteger(options.maxTraceEvents, (value) => (execution.maxTraceEvents = value));
+  assignPositiveInteger(options.maxItems, (value) => (execution.maxItems = value));
+  return execution;
+}
+
+function assignPositiveInteger(raw: string | undefined, assign: (value: number) => void): void {
+  if (!raw) return;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`expected positive integer, got: ${raw}`);
+  assign(value);
+}
+
+function parseDurationMs(value: string): number {
+  const match = value.match(/^(\d+)(ms|s|m|h)?$/);
+  if (!match) throw new Error(`invalid duration: ${value}`);
+  const amount = Number(match[1]);
+  const unit = match[2] ?? "ms";
+  if (unit === "ms") return amount;
+  if (unit === "s") return amount * 1000;
+  if (unit === "m") return amount * 60 * 1000;
+  return amount * 60 * 60 * 1000;
+}

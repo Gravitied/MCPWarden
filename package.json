@@ -29,11 +29,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Gravitied/mcp-workflow-ir-runtime.git"
+    "url": "https://github.com/Gravitied/MCPWarden.git"
   },
-  "homepage": "https://github.com/Gravitied/mcp-workflow-ir-runtime#readme",
+  "homepage": "https://github.com/Gravitied/MCPWarden#readme",
   "bugs": {
-    "url": "https://github.com/Gravitied/mcp-workflow-ir-runtime/issues"
+    "url": "https://github.com/Gravitied/MCPWarden/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -54,6 +54,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:security": "vitest run tests/security",
+    "test:effectiveness": "vitest run tests/eval",
     "test:e2e": "vitest run tests/e2e",
     "test:package": "vitest run tests/e2e/package-smoke.test.ts",
     "release:check": "pnpm check && pnpm test && pnpm test:package && pnpm audit --audit-level low",
@@ -62,20 +63,20 @@
     "prepack": "pnpm build"
   },
   "dependencies": {
-    "@commander-js/extra-typings": "^13.0.0",
-    "@modelcontextprotocol/sdk": "^1.17.5",
-    "commander": "^13.0.0",
-    "zod": "^3.24.0"
+    "@commander-js/extra-typings": "^14.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^14.0.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@eslint/js": "^9.0.0",
-    "@types/node": "^22.0.0",
-    "@vitest/coverage-v8": "^3.0.0",
-    "eslint": "^9.0.0",
-    "fast-check": "^3.23.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.6.2",
+    "@vitest/coverage-v8": "^4.1.5",
+    "eslint": "^10.3.0",
+    "fast-check": "^4.7.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.2",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.5"
   }
 }

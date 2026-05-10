@@ -14,12 +14,18 @@ export function checkWorkflow(workflow: Workflow, registry: ToolRegistry, policy
   const effects: Effect[] = [];
   const denied: string[] = [];
   const savedTrust = new Map<string, TrustLabel>();
+  const manifestApprovalEffects = new Set<Effect>();
 
   for (const step of workflow.steps) {
     try {
       if (step.op === "tool.call") {
-        effects.push(...registry.effectsForToolCall(step.tool, step.args));
-        savedTrust.set(step.id, toolCallTrust(registry.getTool(step.tool).outputTrust, step.saveAs, step.id, denied));
+        const tool = registry.getTool(step.tool);
+        const stepEffects = registry.effectsForToolCall(step.tool, step.args);
+        effects.push(...stepEffects);
+        for (const effect of tool.requiresApproval ?? []) {
+          if (stepEffects.includes(effect)) manifestApprovalEffects.add(effect);
+        }
+        savedTrust.set(step.id, toolCallTrust(tool.outputTrust, step.saveAs, step.id, denied));
       } else if (step.op === "agent.ask") {
         for (const ref of collectRefs(step.input)) {
           if (savedTrust.get(ref) === "secret") {
@@ -49,7 +55,7 @@ export function checkWorkflow(workflow: Workflow, registry: ToolRegistry, policy
     }
   }
 
-  const approvals = createApprovalPlan(uniqueEffects, policy.requireApproval);
+  const approvals = createApprovalPlan(uniqueEffects, [...policy.requireApproval, ...manifestApprovalEffects]);
   return denied.length > 0
     ? { ok: false, effects: uniqueEffects, approvals, denied, stepTrust: savedTrust }
     : { ok: true, effects: uniqueEffects, approvals, denied: [], stepTrust: savedTrust };

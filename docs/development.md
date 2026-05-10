@@ -18,6 +18,7 @@ pnpm test
 ```powershell
 pnpm check
 pnpm test
+pnpm test:effectiveness
 pnpm test:security
 pnpm test:e2e
 pnpm test:package
@@ -59,6 +60,7 @@ This test:
 - `tests/property`: property-based Workflow IR validation tests.
 - `tests/e2e`: CLI and package smoke tests.
 - `tests/bench`: benchmark harnesses.
+- `tests/eval`: effectiveness and quality metrics such as unsafe allow rate, approval precision/recall, schema validity, token estimates, trace size, and usefulness score.
 
 ## Adding A Tool Source Adapter
 
