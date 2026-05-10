@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -89,6 +89,57 @@ describe("mcpw CLI", () => {
     const schema = JSON.parse(stdout);
     expect(schema.title).toBe("MCPWarden Workflow IR");
     expect(JSON.stringify(schema)).toContain("agent.ask");
+  });
+
+  it("exposes hardening platform commands", async () => {
+    const { stdout: policy } = await runCli(["policy", "init", "--profile", "enterprise-strict"]);
+    expect(JSON.parse(policy).deny).toContain("read.secrets");
+
+    const { stdout: scan } = await runCli(["security", "scan", "--config", "examples/mcpw.config.json"]);
+    expect(JSON.parse(scan).summary.totalTools).toBeGreaterThan(0);
+
+    const { stdout: approval } = await runCli([
+      "approve",
+      "issue",
+      "examples/apply-patch.workflow.json",
+      "--secret",
+      "test-secret",
+      "--expires",
+      "5m"
+    ]);
+    expect(JSON.parse(approval).token).toContain(".");
+
+    const { stdout: lock } = await runCli(["sources", "lock", "--config", "examples/mcpw.config.json"]);
+    expect(JSON.parse(lock).sources["fixture-mcp"].tools["tests.get_failures"].schemaHash).toContain("sha256:");
+
+    const { stdout: graph } = await runCli(["trace", "graph", "examples/triage-failing-tests.workflow.json", "--format", "mermaid"]);
+    expect(graph).toContain("flowchart LR");
+
+    const { stdout: conformance } = await runCli(["conformance", "run"]);
+    expect(JSON.parse(conformance).ok).toBe(true);
+
+    const { stdout: attacks } = await runCli(["attacks", "run"]);
+    expect(JSON.parse(attacks).ok).toBe(true);
+
+    const { stdout: dashboard } = await runCli(["dashboard", "--print"]);
+    expect(dashboard).toContain("MCPWarden Dashboard");
+  });
+
+  it("lists and shows persistent run records", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "mcpw-cli-runs-"));
+    try {
+      const store = join(cwd, "runs.jsonl");
+      await writeFile(
+        store,
+        `${JSON.stringify({ runId: "run_1", workflow: "wf", ok: true, createdAt: "2026-05-10T00:00:00.000Z" })}\n`
+      );
+      const { stdout: list } = await runCli(["runs", "list", "--store", store]);
+      expect(JSON.parse(list)[0].runId).toBe("run_1");
+      const { stdout: show } = await runCli(["runs", "show", "run_1", "--store", store]);
+      expect(JSON.parse(show).workflow).toBe("wf");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it("checks a workflow using an imported MCP tool after overrides", async () => {

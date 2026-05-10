@@ -129,6 +129,45 @@ describe("local service", () => {
     }
   });
 
+  it("serves dashboard and security scan endpoints", async () => {
+    const service = await createService({ configPath: "examples/mcpw.config.json", port: 0 });
+    await service.start();
+    try {
+      const dashboard = await fetch(`${service.url}/dashboard`, { headers: authHeaders(service) });
+      expect(dashboard.headers.get("content-type")).toContain("text/html");
+      expect(await dashboard.text()).toContain("MCPWarden Dashboard");
+
+      const scan = await fetch(`${service.url}/security/scan`, { headers: authHeaders(service) }).then((response) => response.json());
+      expect(scan.summary.totalTools).toBeGreaterThan(0);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("persists run results when a run store path is configured", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "mcpw-service-runs-"));
+    const runStorePath = join(cwd, "runs.jsonl");
+    const service = await createService({ configPath: "examples/mcpw.config.json", port: 0, runStorePath });
+    await service.start();
+    try {
+      const response = await fetch(`${service.url}/workflows/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders(service) },
+        body: JSON.stringify({
+          version: "0.1",
+          workflow: "stored_run",
+          steps: [{ id: "failures", op: "tool.call", tool: "tests.get_failures", args: { limit: 1 } }]
+        })
+      });
+      expect(response.status).toBe(200);
+      const runs = await fetch(`${service.url}/runs`, { headers: authHeaders(service) }).then((item) => item.json());
+      expect(runs[0]).toMatchObject({ workflow: "stored_run", ok: true });
+    } finally {
+      await service.stop();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("rejects startup when the requested port is already in use", async () => {
     const first = await createService({ port: 0 });
     await first.start();

@@ -159,6 +159,24 @@ Example streamed run:
 Invoke-WebRequest "$url/workflows/run?stream=events" -Method Post -Headers $headers -ContentType "application/json" -Body $workflowJson
 ```
 
+## GET /security/scan
+
+Runs the MCP threat scanner against configured sources and executable manifests.
+
+The report includes total tools, finding counts, overall risk, and findings for tool poisoning, schema poisoning, shadowing, Unicode obfuscation, dangerous effects, and missing metadata.
+
+## GET /runs
+
+Lists persisted run records when `runStorePath` is configured in the embedding service options. Returns an empty array when no run store is configured.
+
+## GET /runs/:id
+
+Returns one persisted run record when `runStorePath` is configured.
+
+## GET /dashboard
+
+Returns a dependency-light local HTML dashboard with source, run, and security finding summaries.
+
 Failure responses include:
 
 - `ok: false`

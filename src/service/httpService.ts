@@ -5,12 +5,16 @@ import { CompositeToolBroker } from "../adapters/compositeToolBroker.js";
 import { McpToolBroker } from "../adapters/mcpToolBroker.js";
 import { MockToolBroker } from "../adapters/mockTools.js";
 import { loadConfigBundle } from "../config/loadConfig.js";
+import { renderDashboardHtml } from "../dashboard/dashboard.js";
 import { demoTools } from "../manifests/demoManifests.js";
 import { buildCachedUniversalToolRegistry } from "../manifests/universalRegistry.js";
 import { runtimeVersion } from "../packageInfo.js";
 import type { Policy } from "../policy/policy.js";
 import type { ToolBroker } from "../runtime/broker.js";
-import type { ExecutionOptions } from "../runtime/executor.js";
+import type { ExecutionOptions, ExecutionResult } from "../runtime/executor.js";
+import { FileRunStore } from "../runs/runStore.js";
+import type { RunRecord } from "../runs/runStore.js";
+import { scanMcpThreats } from "../security/threatScanner.js";
 import { createLoggerFromEnv, type Logger } from "../diagnostics/logger.js";
 import { checkWorkflowPayload, runWorkflowPayload } from "./workflowHandlers.js";
 
@@ -30,6 +34,7 @@ export type ServiceOptions = {
   authToken?: string;
   maxRequestBytes?: number;
   logger?: Logger;
+  runStorePath?: string;
 };
 
 const defaultMaxRequestBytes = 1024 * 1024;
@@ -46,6 +51,7 @@ export async function createService(options: ServiceOptions = {}) {
   const authToken = options.authToken ?? randomBytes(32).toString("base64url");
   const maxRequestBytes = options.maxRequestBytes ?? defaultMaxRequestBytes;
   const logger = options.logger ?? createLoggerFromEnv();
+  const runStore = options.runStorePath ? new FileRunStore(options.runStorePath) : undefined;
   let url = "";
 
   const server = createServer(async (request, response) => {
@@ -85,6 +91,54 @@ export async function createService(options: ServiceOptions = {}) {
           diagnostics: registry.diagnostics,
           importedTools: registry.importedTools.map((tool) => tool.name)
         });
+      }
+
+      if (request.method === "GET" && pathname === "/security/scan") {
+        const registry = await buildCachedUniversalToolRegistry({
+          builtInTools: demoTools,
+          sources: bundle.config.sources,
+          overrides: bundle.overrides
+        });
+        return sendResponse(200, scanMcpThreats({ importedTools: registry.importedTools, manifests: registry.manifests }));
+      }
+
+      if (request.method === "GET" && pathname === "/runs") {
+        return sendResponse(200, runStore ? await runStore.list() : []);
+      }
+
+      if (request.method === "GET" && pathname.startsWith("/runs/")) {
+        if (!runStore) return sendResponse(404, { ok: false, code: "NOT_FOUND", message: "run store is not configured" });
+        return sendResponse(200, await runStore.get(decodeURIComponent(pathname.slice("/runs/".length))));
+      }
+
+      if (request.method === "GET" && pathname === "/dashboard") {
+        const registry = await buildCachedUniversalToolRegistry({
+          builtInTools: demoTools,
+          sources: bundle.config.sources,
+          overrides: bundle.overrides
+        });
+        const scan = scanMcpThreats({ importedTools: registry.importedTools, manifests: registry.manifests });
+        logger.info("http.request", {
+          requestId,
+          method: request.method,
+          path: pathname,
+          status: 200,
+          durationMs: Date.now() - requestStartedAt
+        });
+        return sendHtml(
+          response,
+          200,
+          renderDashboardHtml({
+            version: runtimeVersion,
+            sources: bundle.config.sources.map((source) => ({
+              id: source.id,
+              kind: source.kind,
+              tools: registry.importedTools.filter((tool) => tool.sourceId === source.id).length
+            })),
+            runs: runStore ? (await runStore.list()).map((run) => ({ runId: run.runId, workflow: run.workflow, ok: run.ok })) : [],
+            findings: scan.findings.map((finding) => ({ severity: finding.severity, title: `${finding.kind}: ${finding.tool ?? finding.sourceId ?? "source"}` }))
+          })
+        );
       }
 
       if (request.method === "POST" && pathname === "/workflows/check") {
@@ -142,6 +196,7 @@ export async function createService(options: ServiceOptions = {}) {
           await readJson(request, maxRequestBytes),
           { ...deps, broker, execution: executionOptionsFromQuery(requestUrl.searchParams) }
         );
+        if (runStore && "trace" in result) await runStore.append(runRecordFromResult(result));
         return sendResponse(result.status, result);
       }
 
@@ -303,6 +358,25 @@ function toConfigInput(options: ServiceOptions): { configPath?: string; override
 function send(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { "content-type": "application/json" });
   response.end(JSON.stringify(body));
+}
+
+function sendHtml(response: ServerResponse, status: number, body: string): void {
+  response.writeHead(status, { "content-type": "text/html; charset=utf-8" });
+  response.end(body);
+}
+
+function runRecordFromResult(result: { status: number } & ExecutionResult): RunRecord {
+  const record: RunRecord = {
+    runId: result.trace.runId,
+    workflow: result.trace.workflow,
+    ok: result.ok,
+    createdAt: new Date().toISOString(),
+    metrics: result.metrics,
+    trace: result.trace,
+    outputs: result.outputs
+  };
+  if (!result.ok) record.error = result.error;
+  return record;
 }
 
 class HttpRequestError extends Error {

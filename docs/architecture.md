@@ -36,14 +36,25 @@ flowchart LR
 
 Commands:
 
+- `approve issue`
+- `approve verify`
+- `attacks run`
+- `conformance run`
+- `dashboard`
 - `init`
 - `doctor`
 - `check`
 - `plan`
+- `policy init`
 - `run`
+- `runs list`
+- `runs show`
+- `security scan`
 - `serve`
 - `sources list`
 - `sources inspect`
+- `sources lock`
+- `trace graph`
 - `manifests export`
 
 ### Workflow IR
@@ -67,6 +78,7 @@ The MCP adapter lives in `src/adapters/mcpToolsListAdapter.ts`. It supports:
 
 - fixture transport for deterministic tests.
 - stdio transport through the official MCP TypeScript SDK.
+- HTTP JSON-RPC transport for local or remote MCP-compatible endpoints.
 
 The adapter emits imported tool records with diagnostics. Missing trust and effect metadata keeps the tool inspect-only.
 
@@ -93,6 +105,19 @@ Implemented brokers:
 The local service lives in `src/service/`. It wraps the same validation, registry, policy, and execution pipeline used by the CLI.
 
 The service is localhost-first and intentionally small. It is not a hosted multi-tenant API.
+
+### Hardening Platform
+
+MCPWarden includes focused modules for release hardening:
+
+- `src/policy/packs.ts`: named policy profiles.
+- `src/security/threatScanner.ts`: MCP metadata and manifest threat scanning.
+- `src/approvals/tokens.ts`: signed approval tokens with expiry and nonce replay protection.
+- `src/sources/lockfile.ts`: source lockfiles and schema pinning.
+- `src/runs/runStore.ts`: persistent JSONL run records.
+- `src/provenance/graph.ts`: workflow dataflow graph generation.
+- `src/conformance/suite.ts`: conformance and attack benchmark suites.
+- `src/dashboard/dashboard.ts`: local static dashboard rendering.
 
 ## Trust And Authority Model
 

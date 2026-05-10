@@ -101,17 +101,51 @@ Stdio source:
 }
 ```
 
+HTTP source:
+
+```json
+{
+  "id": "remote-mcp",
+  "kind": "mcp",
+  "transport": "http",
+  "url": "http://127.0.0.1:3000/mcp",
+  "defaultPolicy": "deny-unknown",
+  "timeoutMs": 5000
+}
+```
+
 Fields:
 
 - `id`: stable source id used by overrides.
 - `kind`: currently `mcp`.
-- `transport`: `fixture`, `stdio`, or reserved `http`.
+- `transport`: `fixture`, `stdio`, or `http`.
 - `fixturePath`: JSON file with MCP `tools/list` response for fixture transport.
 - `command`: process command for stdio transport.
 - `args`: command arguments for stdio transport.
-- `url`: reserved for HTTP transport.
+- `url`: HTTP JSON-RPC MCP endpoint for HTTP transport.
 - `timeoutMs`: source operation timeout value for callers.
 - `defaultPolicy`: source default posture. The recommended value is `deny-unknown`.
+
+## Policy Packs
+
+Built-in policy packs provide safe starting points:
+
+```powershell
+mcpw policy init --profile local-dev
+mcpw policy init --profile ci-readonly
+mcpw policy init --profile enterprise-strict
+mcpw policy init --profile owasp-mcp-top10
+```
+
+## Source Lockfiles
+
+Pin imported tool schemas and descriptions before trusting a source in repeatable environments:
+
+```powershell
+mcpw sources lock --config mcpw.config.json --out mcpw.lock.json
+```
+
+The lockfile records per-tool `schemaHash` and `descriptionHash` values. Schema drift should trigger review before updated tools are allowed to run.
 
 ## Overrides
 

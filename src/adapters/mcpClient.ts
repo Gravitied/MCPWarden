@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { McpSourceConfig } from "../config/config.js";
 import { runtimeVersion } from "../packageInfo.js";
+import { HttpMcpClient } from "./httpMcpClient.js";
 
 export type McpClientConnection = {
   listTools(): Promise<unknown>;
@@ -15,6 +16,7 @@ export type McpClientFactory = {
 
 export class SdkMcpClientFactory implements McpClientFactory {
   async createClient(source: McpSourceConfig): Promise<McpClientConnection> {
+    if (source.transport === "http") return new HttpMcpClient(source);
     if (source.transport !== "stdio") throw new Error(`MCP source "${source.id}" transport is not stdio`);
     if (!source.command) throw new Error(`MCP source "${source.id}" missing command`);
 
